@@ -1,0 +1,13 @@
+:: Start [$xpos_100 $ypos_100 start]
+Your story begins here.
+
+[[Continue]]
+
+:: StoryTitle [$xpos_0 $ypos_0]
+test3
+
+:: StoryAuthor
+Some Guy
+
+:: Continue [$xpos_300 $ypos_100]
+The story continues...

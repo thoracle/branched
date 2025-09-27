@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BranchEd - Visual Story Editor</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <header id="toolbar">
+            <div class="toolbar-section">
+                <button id="add-lane-btn">Add Lane</button>
+                <button id="add-passage-btn">Add Passage</button>
+            </div>
+            <div class="toolbar-section">
+                <button id="import-btn">Import Twee</button>
+                <button id="export-btn">Export Twee</button>
+                <button id="theme-toggle" title="Toggle Day/Night Mode">🌙</button>
+            </div>
+        </header>
+
+        <div id="canvas-container">
+            <canvas id="main-canvas"></canvas>
+        </div>
+
+        <div id="editor-panel" class="hidden">
+            <div class="editor-header">
+                <h3>Edit Passage</h3>
+                <button id="close-editor">×</button>
+            </div>
+            <div class="editor-body">
+                <input type="text" id="passage-title" placeholder="Passage Title">
+                <textarea id="passage-content" placeholder="Passage content..."></textarea>
+                <button id="delete-passage">Delete Passage</button>
+            </div>
+        </div>
+
+        <input type="file" id="file-input" accept=".tw,.twee" style="display: none;">
+    </div>
+
+    <script src="swimlanes.js"></script>
+    <script src="editor.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
