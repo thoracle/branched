@@ -364,6 +364,7 @@ const App = {
         const passage = {
             id: `passage_${this.state.nextPassageId++}`,
             title: 'New Passage',
+            tags: '',
             content: '',
             laneId: lane.id,
             x: 0,
@@ -387,6 +388,7 @@ const App = {
         const passage = {
             id: `passage_${this.state.nextPassageId++}`,
             title: 'New Passage',
+            tags: '',
             content: '',
             laneId: lane.id,
             x: x - this.CONSTANTS.PASSAGE_WIDTH / 2, // Center on click position
@@ -756,6 +758,7 @@ const App = {
                 const newPassage = {
                     id: `passage_${this.state.nextPassageId++}`,
                     title: title,
+                    tags: '',
                     content: '',
                     laneId: lane.id,
                     x: 0,
@@ -830,7 +833,7 @@ const App = {
     parseTwee(content) {
         this.state.passages.clear();
         this.state.lanes = [
-            { id: 'metadata', name: 'Metadata', isMetadata: true, passages: [] }
+            { id: 'metadata', name: 'Metadata', isMetadata: true, passages: [], collapsed: false }
         ];
 
         const passageRegex = /:: ([^\[]+)(?:\[([^\]]*)\])?\n([\s\S]*?)(?=\n:: |\n*$)/g;
@@ -838,14 +841,30 @@ const App = {
 
         while ((match = passageRegex.exec(content)) !== null) {
             const title = match[1].trim();
-            const tags = match[2] ? match[2].trim() : '';
+            const tagString = match[2] ? match[2].trim() : '';
             const passageContent = match[3].trim();
 
-            const isMetadata = title === 'Start' || tags.includes('info');
-            let lane = this.state.lanes[0];
+            // Parse tags - look for lane: prefix for lane assignment
+            const tagArray = tagString.split(/\s+/).filter(t => t);
+            let laneName = 'Main';
+            const passageTags = [];
+
+            // Check for lane assignment and separate from regular tags
+            tagArray.forEach(tag => {
+                if (tag.startsWith('lane:')) {
+                    laneName = tag.substring(5);
+                } else {
+                    passageTags.push(tag);
+                }
+            });
+
+            // Determine if it's metadata
+            const isMetadata = title === 'Start' || title === 'StoryTitle' || title === 'StoryAuthor' ||
+                              passageTags.includes('info') || passageTags.includes('$start');
+
+            let lane = isMetadata ? this.state.lanes[0] : null;
 
             if (!isMetadata) {
-                const laneName = tags || 'Main';
                 lane = this.state.lanes.find(l => l.name === laneName);
 
                 if (!lane) {
@@ -853,7 +872,8 @@ const App = {
                         id: `lane_${this.state.nextLaneId++}`,
                         name: laneName,
                         isMetadata: false,
-                        passages: []
+                        passages: [],
+                        collapsed: false
                     };
                     this.state.lanes.push(lane);
                 }
@@ -862,10 +882,12 @@ const App = {
             const passage = {
                 id: `passage_${this.state.nextPassageId++}`,
                 title: title,
+                tags: passageTags.join(' '),
                 content: passageContent,
                 laneId: lane.id,
                 x: 0,
-                y: 0
+                y: 0,
+                relativeY: 0
             };
 
             this.state.passages.set(passage.id, passage);
@@ -887,9 +909,23 @@ const App = {
 
         for (const passage of this.state.passages.values()) {
             const lane = this.state.lanes.find(l => l.id === passage.laneId);
-            const tags = lane && !lane.isMetadata ? `[${lane.name}]` : '';
 
-            twee += `:: ${passage.title}${tags}\n${passage.content}\n\n`;
+            // Build tags string
+            const tagArray = [];
+
+            // Add passage tags
+            if (passage.tags) {
+                tagArray.push(...passage.tags.split(/\s+/).filter(t => t));
+            }
+
+            // Add lane tag if not metadata lane
+            if (lane && !lane.isMetadata && lane.name !== 'Main') {
+                tagArray.push(`lane:${lane.name}`);
+            }
+
+            const tagString = tagArray.length > 0 ? ` [${tagArray.join(' ')}]` : '';
+
+            twee += `:: ${passage.title}${tagString}\n${passage.content}\n\n`;
         }
 
         const blob = new Blob([twee], { type: 'text/plain' });

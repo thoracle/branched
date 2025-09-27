@@ -109,6 +109,34 @@ const Swimlanes = {
             const titleText = this.truncateText(ctx, passage.title, constants.PASSAGE_WIDTH - 20);
             ctx.fillText(titleText, passage.x + constants.PASSAGE_WIDTH / 2, passage.y + 10);
 
+            // Render tags if present
+            if (passage.tags) {
+                const tags = passage.tags.split(/\s+/).filter(t => t);
+                if (tags.length > 0) {
+                    ctx.font = '9px monospace';
+                    ctx.textAlign = 'center';
+
+                    // Show first few tags that fit
+                    let tagText = tags.slice(0, 3).join(' ');
+                    if (tags.length > 3) tagText += '...';
+
+                    // Draw tag background
+                    const metrics = ctx.measureText(tagText);
+                    const tagX = passage.x + constants.PASSAGE_WIDTH / 2 - metrics.width / 2 - 3;
+                    const tagY = passage.y + 24;
+                    const tagHeight = 12;
+
+                    ctx.fillStyle = colors.passageBorder;
+                    ctx.globalAlpha = 0.2;
+                    ctx.fillRect(tagX, tagY, metrics.width + 6, tagHeight);
+                    ctx.globalAlpha = 1;
+
+                    // Draw tag text
+                    ctx.fillStyle = colors.passageContent;
+                    ctx.fillText(tagText, passage.x + constants.PASSAGE_WIDTH / 2, tagY + 2);
+                }
+            }
+
             // Render content preview
             if (passage.content) {
                 ctx.fillStyle = colors.passageContent;
@@ -118,8 +146,8 @@ const Swimlanes = {
                 // Remove line breaks and extra spaces for preview
                 const cleanContent = passage.content.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
 
-                // Position for content (below title)
-                const contentY = passage.y + 35;
+                // Position for content (below title and tags)
+                const contentY = passage.y + (passage.tags ? 45 : 35);
                 const contentWidth = constants.PASSAGE_WIDTH - 20;
                 const lineHeight = 12;
                 const maxLines = 4;

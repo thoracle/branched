@@ -192,6 +192,23 @@ body.dark-mode #passage-title {
     color: #e0e0e0;
 }
 
+#passage-tags {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 13px;
+    background: #fff;
+    color: #333;
+    font-family: monospace;
+}
+
+body.dark-mode #passage-tags {
+    background: #333;
+    border-color: #555;
+    color: #e0e0e0;
+}
+
 #passage-content {
     width: 100%;
     min-height: 200px;

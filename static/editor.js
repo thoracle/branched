@@ -11,6 +11,7 @@ const Editor = {
         const closeBtn = document.getElementById('close-editor');
         const deleteBtn = document.getElementById('delete-passage');
         const titleInput = document.getElementById('passage-title');
+        const tagsInput = document.getElementById('passage-tags');
         const contentInput = document.getElementById('passage-content');
 
         closeBtn.addEventListener('click', () => this.close());
@@ -26,6 +27,14 @@ const Editor = {
             if (this.currentPassage) {
                 this.app.updatePassage(this.currentPassage.id, {
                     title: e.target.value
+                });
+            }
+        });
+
+        tagsInput.addEventListener('input', (e) => {
+            if (this.currentPassage) {
+                this.app.updatePassage(this.currentPassage.id, {
+                    tags: e.target.value
                 });
             }
         });
@@ -50,9 +59,11 @@ const Editor = {
 
         const panel = document.getElementById('editor-panel');
         const titleInput = document.getElementById('passage-title');
+        const tagsInput = document.getElementById('passage-tags');
         const contentInput = document.getElementById('passage-content');
 
         titleInput.value = passage.title || '';
+        tagsInput.value = passage.tags || '';
         contentInput.value = passage.content || '';
 
         panel.classList.remove('hidden');
