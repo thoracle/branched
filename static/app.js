@@ -485,25 +485,9 @@ const App = {
             }
         }
 
-        // Mark children but keep track of roots separately
-        const markChildren = (passageId, targetSet) => {
-            const children = this.state.links
-                .filter(link => link.from === passageId)
-                .map(link => link.to)
-                .filter(childId => {
-                    const child = this.state.passages.get(childId);
-                    return child && child.laneId === lane.id;
-                });
-
-            children.forEach(childId => {
-                targetSet.add(childId);
-                markChildren(childId, targetSet); // Recursively mark all descendants
-            });
-        };
-
-        // Mark all descendants
-        Array.from(bottomCrossLaneRoots).forEach(id => markChildren(id, bottomCrossLanePassages));
-        Array.from(topCrossLaneRoots).forEach(id => markChildren(id, topCrossLanePassages));
+        // Don't mark children - let them position normally
+        // This way only the root cross-lane passages get special positioning
+        // and their children follow normal parent-child positioning rules
 
         // Position by depth columns
         let currentX = this.CONSTANTS.PASSAGE_PADDING;
@@ -693,71 +677,36 @@ const App = {
             }
         });
 
-        // Now position bottom cross-lane passages and their families at the bottom
-        if (bottomCrossLanePassages.size > 0) {
-            // Group ALL bottom passages (roots and descendants) by depth
+        // Now position bottom cross-lane ROOT passages only
+        if (bottomCrossLaneRoots.size > 0) {
+            // Find where to start positioning bottom passages
+            const existingPassages = Array.from(this.state.passages.values())
+                .filter(p => p.laneId === lane.id && positioned.has(p.id));
+            let bottomY = existingPassages.length > 0
+                ? Math.max(...existingPassages.map(p => (p.relativeY || 0) + this.CONSTANTS.PASSAGE_HEIGHT))
+                : 0;
+            bottomY += this.CONSTANTS.PASSAGE_HEIGHT * 2; // Add gap before bottom section
+
+            // Group bottom roots by depth
             const bottomByDepth = {};
-            bottomCrossLanePassages.forEach(passageId => {
+            bottomCrossLaneRoots.forEach(passageId => {
                 const depth = depths.get(passageId);
                 if (!bottomByDepth[depth]) bottomByDepth[depth] = [];
                 bottomByDepth[depth].push(passageId);
             });
 
-            // Find the maximum Y of non-bottom passages to position below them
-            const nonBottomPassages = Array.from(this.state.passages.values())
-                .filter(p => p.laneId === lane.id && positioned.has(p.id));
-            let startY = nonBottomPassages.length > 0
-                ? Math.max(...nonBottomPassages.map(p => (p.relativeY || 0) + this.CONSTANTS.PASSAGE_HEIGHT))
-                : 0;
-            startY += this.CONSTANTS.PASSAGE_HEIGHT; // Add gap before bottom section
-
-            // Now position each depth group at the bottom
+            // Position each depth group
             Object.keys(bottomByDepth).sort((a, b) => a - b).forEach(depth => {
                 const depthX = this.CONSTANTS.PASSAGE_PADDING +
                               (parseInt(depth) * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
 
-                // Group passages by their parent for vertical alignment
-                const parentGroups = {};
                 bottomByDepth[depth].forEach(passageId => {
-                    // Find parent (could be cross-lane or in-lane)
-                    const inLaneParents = this.findParentsInLane(passageId, lane);
-                    const crossLaneParents = this.findCrossLaneParents(passageId, lane);
-                    const parentKey = inLaneParents.length > 0 ? inLaneParents[0] :
-                                    crossLaneParents.length > 0 ? crossLaneParents[0] : 'root';
-
-                    if (!parentGroups[parentKey]) parentGroups[parentKey] = [];
-                    parentGroups[parentKey].push(passageId);
-                });
-
-                // Position each parent group
-                Object.keys(parentGroups).forEach(parentKey => {
-                    const passages = parentGroups[parentKey];
-
-                    // If parent is already positioned, try to align with it
-                    const parent = this.state.passages.get(parentKey);
-                    let groupY = startY;
-
-                    if (parent && positioned.has(parent.id)) {
-                        // Align with parent Y
-                        groupY = parent.relativeY || startY;
-                    }
-
-                    // Position passages in this group
-                    passages.forEach((passageId, index) => {
-                        const passage = this.state.passages.get(passageId);
-                        if (passage && !positioned.has(passageId)) {
-                            passage.x = depthX;
-                            passage.relativeY = groupY + (index * (this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING));
-                            positioned.add(passageId);
-                        }
-                    });
-
-                    // Update startY for next group if needed
-                    if (passages.length > 0) {
-                        const lastPassage = this.state.passages.get(passages[passages.length - 1]);
-                        if (lastPassage) {
-                            startY = Math.max(startY, lastPassage.relativeY + this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING);
-                        }
+                    const passage = this.state.passages.get(passageId);
+                    if (passage && !positioned.has(passageId)) {
+                        passage.x = depthX;
+                        passage.relativeY = bottomY;
+                        positioned.add(passageId);
+                        bottomY += this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
                     }
                 });
             });
