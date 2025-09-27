@@ -458,7 +458,9 @@ const App = {
             depthGroups[depth].push(passageId);
         }
 
-        // First, identify ALL bottom cross-lane passages across all depths
+        // First, identify direct cross-lane passages (not their children)
+        const bottomCrossLaneRoots = new Set();
+        const topCrossLaneRoots = new Set();
         const bottomCrossLanePassages = new Set();
         const topCrossLanePassages = new Set();
 
@@ -471,17 +473,19 @@ const App = {
                     const parentLaneIndex = this.state.lanes.findIndex(l => l.id === parent.laneId);
                     const currentLaneIndex = this.state.lanes.findIndex(l => l.id === lane.id);
                     if (parentLaneIndex > currentLaneIndex) {
-                        // Parent is below - mark for bottom positioning
+                        // Parent is below - mark as bottom root
+                        bottomCrossLaneRoots.add(passageId);
                         bottomCrossLanePassages.add(passageId);
                     } else if (parentLaneIndex < currentLaneIndex) {
-                        // Parent is above - mark for top positioning
+                        // Parent is above - mark as top root
+                        topCrossLaneRoots.add(passageId);
                         topCrossLanePassages.add(passageId);
                     }
                 }
             }
         }
 
-        // Also mark children of bottom/top cross-lane passages
+        // Mark children but keep track of roots separately
         const markChildren = (passageId, targetSet) => {
             const children = this.state.links
                 .filter(link => link.from === passageId)
@@ -497,9 +501,9 @@ const App = {
             });
         };
 
-        // Mark all descendants of bottom/top passages
-        Array.from(bottomCrossLanePassages).forEach(id => markChildren(id, bottomCrossLanePassages));
-        Array.from(topCrossLanePassages).forEach(id => markChildren(id, topCrossLanePassages));
+        // Mark all descendants
+        Array.from(bottomCrossLaneRoots).forEach(id => markChildren(id, bottomCrossLanePassages));
+        Array.from(topCrossLaneRoots).forEach(id => markChildren(id, topCrossLanePassages));
 
         // Position by depth columns
         let currentX = this.CONSTANTS.PASSAGE_PADDING;
@@ -688,86 +692,70 @@ const App = {
             }
         });
 
-        // Now position bottom cross-lane passages
-        if (bottomCrossLanePassages.size > 0) {
-            // Group bottom passages by parent AND depth
-            const bottomGroups = {};
+        // Now position bottom cross-lane root passages (not their children which were already positioned)
+        if (bottomCrossLaneRoots.size > 0) {
+            // For bottom cross-lane passages, align them with their children if they have any
 
-            bottomCrossLanePassages.forEach(passageId => {
+            // Group bottom root passages by depth for proper X positioning
+            const bottomByDepth = {};
+            bottomCrossLaneRoots.forEach(passageId => {
                 const depth = depths.get(passageId);
-
-                // Find the cross-lane parent for grouping
-                const crossLaneParents = this.findCrossLaneParents(passageId, lane);
-                const parentKey = crossLaneParents.length > 0 ? crossLaneParents[0] : 'orphan';
-
-                const groupKey = `${parentKey}_${depth}`;
-                if (!bottomGroups[groupKey]) {
-                    bottomGroups[groupKey] = {
-                        depth: depth,
-                        parentId: parentKey,
-                        passages: []
-                    };
-                }
-                bottomGroups[groupKey].passages.push(passageId);
+                if (!bottomByDepth[depth]) bottomByDepth[depth] = [];
+                bottomByDepth[depth].push(passageId);
             });
 
-            // Start bottom passages at a large Y value (will be at bottom after normalization)
-            const existingYs = Array.from(this.state.passages.values())
-                .filter(p => p.laneId === lane.id && !bottomCrossLanePassages.has(p.id))
-                .map(p => p.relativeY || 0);
-            let bottomY = (existingYs.length > 0 ? Math.max(...existingYs) : 0) + 200;
-
-            // Sort groups by depth first, then by parent
-            const sortedGroups = Object.keys(bottomGroups).sort((a, b) => {
-                const groupA = bottomGroups[a];
-                const groupB = bottomGroups[b];
-                if (groupA.depth !== groupB.depth) {
-                    return groupA.depth - groupB.depth;
-                }
-                // If same depth, group by parent Y position
-                const parentA = this.state.passages.get(groupA.parentId);
-                const parentB = this.state.passages.get(groupB.parentId);
-                return (parentA?.relativeY || 0) - (parentB?.relativeY || 0);
-            });
-
-            // Position each group
-            sortedGroups.forEach(groupKey => {
-                const group = bottomGroups[groupKey];
+            // Process each depth group
+            Object.keys(bottomByDepth).sort((a, b) => a - b).forEach(depth => {
                 const depthX = this.CONSTANTS.PASSAGE_PADDING +
-                              (group.depth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
+                              (parseInt(depth) * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
 
-                // For each passage in the group, check if it has children
-                group.passages.forEach((passageId, index) => {
+                bottomByDepth[depth].forEach(passageId => {
                     const passage = this.state.passages.get(passageId);
                     if (passage && !positioned.has(passageId)) {
-                        // Count how many children this passage has in the same lane
-                        const childCount = this.state.links
+                        // Find this passage's children that are in this lane
+                        const children = this.state.links
                             .filter(link => link.from === passageId)
-                            .filter(link => {
-                                const child = this.state.passages.get(link.to);
-                                return child && child.laneId === lane.id;
-                            }).length;
+                            .map(link => this.state.passages.get(link.to))
+                            .filter(child => child && child.laneId === lane.id);
 
-                        // If this passage has children and it's not the first in the group,
-                        // add extra spacing to position it closer to its children
-                        if (childCount > 0 && index > 0) {
-                            bottomY += this.CONSTANTS.PASSAGE_HEIGHT; // Extra space before passages with children
+                        let desiredY;
+                        if (children.length > 0) {
+                            // If the passage has children, align with them
+                            // Check if children are already positioned
+                            const positionedChildren = children.filter(c => positioned.has(c.id));
+
+                            if (positionedChildren.length > 0) {
+                                // Align with the middle of the children group
+                                const childYs = positionedChildren.map(c => c.relativeY || 0);
+                                const minChildY = Math.min(...childYs);
+                                const maxChildY = Math.max(...childYs);
+                                desiredY = minChildY + (maxChildY - minChildY) / 2;
+                            } else {
+                                // Children not positioned yet - use parent's position from cross-lane
+                                const crossParent = this.state.passages.get(
+                                    this.findCrossLaneParents(passageId, lane)[0]
+                                );
+                                desiredY = crossParent ? (crossParent.relativeY || 0) : 0;
+                            }
+                        } else {
+                            // No children - align with cross-lane parent
+                            const crossParent = this.state.passages.get(
+                                this.findCrossLaneParents(passageId, lane)[0]
+                            );
+                            desiredY = crossParent ? (crossParent.relativeY || 0) : 0;
                         }
 
+                        // Ensure we don't overlap with already positioned passages
+                        const minY = Math.max(...Array.from(this.state.passages.values())
+                            .filter(p => p.laneId === lane.id && positioned.has(p.id))
+                            .map(p => (p.relativeY || 0) + this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING)
+                            .concat([desiredY]));
+
                         passage.x = depthX;
-                        passage.relativeY = bottomY;
+                        passage.relativeY = minY;
                         positioned.add(passageId);
-                        bottomY += this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
                     }
                 });
-
-                // Add extra spacing between different parent groups
-                if (sortedGroups.indexOf(groupKey) < sortedGroups.length - 1) {
-                    const nextGroup = bottomGroups[sortedGroups[sortedGroups.indexOf(groupKey) + 1]];
-                    if (nextGroup.parentId !== group.parentId) {
-                        bottomY += this.CONSTANTS.VERTICAL_SPACING; // Extra gap between parent groups
-                    }
-                }
             });
         }
 
