@@ -508,12 +508,8 @@ const App = {
                         const desiredY = parent.relativeY || 0;
                         const actualY = Math.max(desiredY, nextAvailableY);
 
-                        // For cross-lane links, match parent's X position
-                        if (parent.laneId !== lane.id) {
-                            passage.x = parent.x;
-                        } else {
-                            passage.x = currentX;
-                        }
+                        // X position is already set by depth calculation
+                        passage.x = currentX;
                         passage.relativeY = actualY;
                         positioned.add(passages[0]);
 
@@ -529,13 +525,10 @@ const App = {
                         const actualStartY = Math.max(desiredStartY, nextAvailableY);
                         let currentY = actualStartY;
 
-                        // Determine X position based on parent lane
-                        const xPosition = parent.laneId !== lane.id ? parent.x : currentX;
-
                         passages.forEach(passageId => {
                             const passage = this.state.passages.get(passageId);
                             if (passage && !positioned.has(passageId)) {
-                                passage.x = xPosition;
+                                passage.x = currentX;
                                 passage.relativeY = currentY;
                                 positioned.add(passageId);
                                 currentY += this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
@@ -590,25 +583,57 @@ const App = {
         const depths = new Map();
         const visited = new Set();
 
-        // Find roots
+        // Find roots - passages with no parents in ANY lane
         const roots = lane.passages.filter(passageId => {
-            const incomingFromLane = this.state.links.filter(link => {
+            const allIncoming = this.state.links.filter(link => link.to === passageId);
+            if (allIncoming.length === 0) return true;
+
+            // Check if this has a cross-lane parent - if so, calculate depth from that parent
+            const crossLaneParent = allIncoming.find(link => {
                 const fromPassage = this.state.passages.get(link.from);
-                return link.to === passageId && fromPassage && fromPassage.laneId === lane.id;
+                return fromPassage && fromPassage.laneId !== lane.id;
             });
-            return incomingFromLane.length === 0;
+
+            if (crossLaneParent) {
+                // Will handle this separately
+                return false;
+            }
+
+            // Check for in-lane parents
+            const inLaneParents = allIncoming.filter(link => {
+                const fromPassage = this.state.passages.get(link.from);
+                return fromPassage && fromPassage.laneId === lane.id;
+            });
+
+            return inLaneParents.length === 0;
         });
 
-        // BFS to calculate depths
-        const queue = roots.map(id => ({ id, depth: 0 }));
+        // Handle cross-lane children first - inherit depth from parent + 1
+        lane.passages.forEach(passageId => {
+            const crossLaneParents = this.findCrossLaneParents(passageId, lane);
+            if (crossLaneParents.length > 0) {
+                const parent = this.state.passages.get(crossLaneParents[0]);
+                if (parent) {
+                    // Calculate parent's depth if needed
+                    const parentDepth = this.getPassageDepth(parent);
+                    depths.set(passageId, parentDepth + 1);
+                    visited.add(passageId);
+                }
+            }
+        });
+
+        // BFS to calculate depths for remaining passages
+        const queue = roots.map(id => ({ id, depth: visited.has(id) ? depths.get(id) : 0 }));
 
         while (queue.length > 0) {
             const { id, depth } = queue.shift();
 
-            if (visited.has(id)) continue;
+            if (visited.has(id) && !roots.includes(id)) continue;
             visited.add(id);
 
-            depths.set(id, depth);
+            if (!depths.has(id)) {
+                depths.set(id, depth);
+            }
 
             const children = graph[id] || [];
             children.forEach(childId => {
@@ -626,6 +651,26 @@ const App = {
         });
 
         return depths;
+    },
+
+    getPassageDepth(passage) {
+        // Calculate depth by finding the longest path from any root
+        const visited = new Set();
+        const findDepth = (p) => {
+            if (visited.has(p.id)) return 0;
+            visited.add(p.id);
+
+            const parents = this.state.links
+                .filter(link => link.to === p.id)
+                .map(link => this.state.passages.get(link.from))
+                .filter(parent => parent);
+
+            if (parents.length === 0) return 0;
+
+            return 1 + Math.max(...parents.map(parent => findDepth(parent)));
+        };
+
+        return findDepth(passage);
     },
 
     findParentsInLane(passageId, lane) {
