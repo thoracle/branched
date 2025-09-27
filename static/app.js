@@ -506,7 +506,8 @@ const App = {
         const sortedDepths = Object.keys(depthGroups).sort((a, b) => a - b);
 
         // First position top cross-lane passages
-        let topY = 0;
+        // Start with some padding from the top of the content area
+        let topY = this.CONSTANTS.PASSAGE_PADDING;
         if (topCrossLanePassages.size > 0) {
             // Group by depth and position at top
             const topByDepth = {};
