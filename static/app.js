@@ -549,10 +549,24 @@ const App = {
                 const depthX = this.CONSTANTS.PASSAGE_PADDING +
                               (group.depth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
 
-                // Stack passages in this group vertically
-                group.passages.forEach(passageId => {
+                // For each passage in the group, check if it has children
+                group.passages.forEach((passageId, index) => {
                     const passage = this.state.passages.get(passageId);
                     if (passage && !positioned.has(passageId)) {
+                        // Count how many children this passage has in the same lane
+                        const childCount = this.state.links
+                            .filter(link => link.from === passageId)
+                            .filter(link => {
+                                const child = this.state.passages.get(link.to);
+                                return child && child.laneId === lane.id;
+                            }).length;
+
+                        // If this passage has children and it's not the first in the group,
+                        // add extra spacing to position it closer to its children
+                        if (childCount > 0 && index > 0) {
+                            topY += this.CONSTANTS.PASSAGE_HEIGHT; // Extra space before passages with children
+                        }
+
                         passage.x = depthX;
                         passage.relativeY = topY;
                         positioned.add(passageId);
@@ -722,10 +736,24 @@ const App = {
                 const depthX = this.CONSTANTS.PASSAGE_PADDING +
                               (group.depth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
 
-                // Stack passages in this group vertically
-                group.passages.forEach(passageId => {
+                // For each passage in the group, check if it has children
+                group.passages.forEach((passageId, index) => {
                     const passage = this.state.passages.get(passageId);
                     if (passage && !positioned.has(passageId)) {
+                        // Count how many children this passage has in the same lane
+                        const childCount = this.state.links
+                            .filter(link => link.from === passageId)
+                            .filter(link => {
+                                const child = this.state.passages.get(link.to);
+                                return child && child.laneId === lane.id;
+                            }).length;
+
+                        // If this passage has children and it's not the first in the group,
+                        // add extra spacing to position it closer to its children
+                        if (childCount > 0 && index > 0) {
+                            bottomY += this.CONSTANTS.PASSAGE_HEIGHT; // Extra space before passages with children
+                        }
+
                         passage.x = depthX;
                         passage.relativeY = bottomY;
                         positioned.add(passageId);
