@@ -195,6 +195,7 @@ body.dark-mode #passage-title {
 #passage-tags {
     width: 100%;
     padding: 10px;
+    margin-bottom: 5px;
     border: 1px solid #ddd;
     border-radius: 4px;
     font-size: 13px;
@@ -203,10 +204,50 @@ body.dark-mode #passage-title {
     font-family: monospace;
 }
 
+.tag-help {
+    margin-bottom: 10px;
+    padding: 8px;
+    background: #f8f8f8;
+    border-radius: 3px;
+    color: #666;
+    font-size: 11px;
+}
+
+.tag-help code {
+    background: #e8e8e8;
+    padding: 2px 5px;
+    border-radius: 2px;
+    font-size: 11px;
+    margin: 0 3px;
+    color: #444;
+    cursor: pointer;
+    font-family: monospace;
+}
+
+.tag-help code:hover {
+    background: #d8d8d8;
+    color: #000;
+}
+
 body.dark-mode #passage-tags {
     background: #333;
     border-color: #555;
     color: #e0e0e0;
+}
+
+body.dark-mode .tag-help {
+    background: #2a2a2a;
+    color: #999;
+}
+
+body.dark-mode .tag-help code {
+    background: #3a3a3a;
+    color: #bbb;
+}
+
+body.dark-mode .tag-help code:hover {
+    background: #4a4a4a;
+    color: #fff;
 }
 
 #passage-content {

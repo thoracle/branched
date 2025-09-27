@@ -16,6 +16,31 @@ const Editor = {
 
         closeBtn.addEventListener('click', () => this.close());
 
+        // Handle clicks on tag examples
+        document.addEventListener('click', (e) => {
+            if (e.target.tagName === 'CODE' && e.target.closest('.tag-help')) {
+                const tag = e.target.textContent;
+                const currentTags = tagsInput.value.trim();
+
+                // For $lane: tag, prompt for lane name
+                if (tag === '$lane:Name') {
+                    const laneName = prompt('Enter lane name:');
+                    if (laneName) {
+                        const newTag = `$lane:${laneName}`;
+                        tagsInput.value = currentTags ? `${currentTags} ${newTag}` : newTag;
+                    }
+                } else {
+                    // Add tag if not already present
+                    if (!currentTags.split(/\s+/).includes(tag)) {
+                        tagsInput.value = currentTags ? `${currentTags} ${tag}` : tag;
+                    }
+                }
+
+                // Trigger input event to save
+                tagsInput.dispatchEvent(new Event('input'));
+            }
+        });
+
         deleteBtn.addEventListener('click', () => {
             if (this.currentPassage && confirm('Delete this passage?')) {
                 this.app.deletePassage(this.currentPassage.id);
