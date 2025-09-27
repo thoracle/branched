@@ -79,20 +79,44 @@ const Swimlanes = {
         });
     },
 
-    renderPassages(ctx, passages, selectedPassage, constants, lanes, colors) {
+    renderPassages(ctx, passages, selectedPassage, constants, lanes, colors, links) {
+        // Pre-calculate orphan passages (no incoming or outgoing links)
+        const orphanPassages = new Set();
+        for (const passage of passages.values()) {
+            const hasIncoming = links && links.some(l => l.to === passage.id);
+            const hasOutgoing = links && links.some(l => l.from === passage.id);
+            if (!hasIncoming && !hasOutgoing) {
+                orphanPassages.add(passage.id);
+            }
+        }
+
         for (const passage of passages.values()) {
             // Check if the passage's lane is collapsed
             const lane = lanes ? lanes.find(l => l.id === passage.laneId) : null;
             if (lane && lane.collapsed) continue;
 
             const isSelected = selectedPassage && selectedPassage.id === passage.id;
+            const isOrphan = orphanPassages.has(passage.id);
 
             ctx.fillStyle = colors.passageBackground;
             ctx.fillRect(passage.x, passage.y, constants.PASSAGE_WIDTH, constants.PASSAGE_HEIGHT);
 
-            ctx.strokeStyle = isSelected ? colors.passageBorderSelected : colors.passageBorder;
-            ctx.lineWidth = isSelected ? 2 : 1;
+            // Different border style for orphan passages
+            if (isOrphan) {
+                ctx.strokeStyle = colors.passageOrphanBorder || '#ff0000';  // Red border for orphans
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 3]);  // Dashed line
+            } else if (isSelected) {
+                ctx.strokeStyle = colors.passageBorderSelected;
+                ctx.lineWidth = 2;
+                ctx.setLineDash([]);
+            } else {
+                ctx.strokeStyle = colors.passageBorder;
+                ctx.lineWidth = 1;
+                ctx.setLineDash([]);
+            }
             ctx.strokeRect(passage.x, passage.y, constants.PASSAGE_WIDTH, constants.PASSAGE_HEIGHT);
+            ctx.setLineDash([]);  // Reset dash pattern
 
             // Set up clipping region to prevent text overflow
             ctx.save();

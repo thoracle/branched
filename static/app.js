@@ -27,6 +27,7 @@ const App = {
             passageBackground: '#ffffff',
             passageBorder: '#999999',
             passageBorderSelected: '#0066cc',
+            passageOrphanBorder: '#ff4444',  // Red for orphans in light mode
             passageTitle: '#333333',
             passageContent: '#666666',
             linkColor: '#666666',
@@ -48,6 +49,7 @@ const App = {
             passageBackground: '#333333',
             passageBorder: '#555555',
             passageBorderSelected: '#4499ff',
+            passageOrphanBorder: '#ff6666',  // Lighter red for orphans in dark mode
             passageTitle: '#ffffff',
             passageContent: '#bbbbbb',
             linkColor: '#888888',
@@ -436,6 +438,34 @@ const App = {
 
         const baseY = laneY + this.CONSTANTS.HEADER_HEIGHT;
 
+        // Debug specific passage
+        const debugTarget = 'ab1a1a1a';
+        let foundDebugPassage = false;
+        lane.passages.forEach(passageId => {
+            const passage = this.state.passages.get(passageId);
+            if (passage && passage.title && passage.title === debugTarget) {  // Exact match only
+                foundDebugPassage = true;
+
+                // Find all incoming links
+                const incomingLinks = this.state.links.filter(l => l.to === passageId);
+                const outgoingLinks = this.state.links.filter(l => l.from === passageId);
+
+                console.log(`Found ${debugTarget} in lane ${lane.name}:`, {
+                    id: passageId,
+                    title: passage.title,
+                    laneId: passage.laneId,
+                    incomingLinks: incomingLinks.map(l => ({
+                        from: this.state.passages.get(l.from)?.title,
+                        fromLane: this.state.lanes.find(ln => ln.id === this.state.passages.get(l.from)?.laneId)?.name
+                    })),
+                    outgoingLinks: outgoingLinks.map(l => ({
+                        to: this.state.passages.get(l.to)?.title,
+                        toLane: this.state.lanes.find(ln => ln.id === this.state.passages.get(l.to)?.laneId)?.name
+                    }))
+                });
+            }
+        });
+
         // Reset all passage positions first
         lane.passages.forEach(passageId => {
             const passage = this.state.passages.get(passageId);
@@ -458,11 +488,11 @@ const App = {
             depthGroups[depth].push(passageId);
         }
 
-        // First, identify direct cross-lane passages (not their children)
+        // First, identify direct cross-lane passages and their descendants
         const bottomCrossLaneRoots = new Set();
         const topCrossLaneRoots = new Set();
-        const bottomCrossLanePassages = new Set();
-        const topCrossLanePassages = new Set();
+        const bottomCrossLaneDescendants = new Set();
+        const topCrossLaneDescendants = new Set();
 
         // Mark passages that have cross-lane parents from below/above
         for (const [passageId, depth] of depths.entries()) {
@@ -475,19 +505,32 @@ const App = {
                     if (parentLaneIndex > currentLaneIndex) {
                         // Parent is below - mark as bottom root
                         bottomCrossLaneRoots.add(passageId);
-                        bottomCrossLanePassages.add(passageId);
                     } else if (parentLaneIndex < currentLaneIndex) {
                         // Parent is above - mark as top root
                         topCrossLaneRoots.add(passageId);
-                        topCrossLanePassages.add(passageId);
                     }
                 }
             }
         }
 
-        // Don't mark children - let them position normally
-        // This way only the root cross-lane passages get special positioning
-        // and their children follow normal parent-child positioning rules
+        // Now find all descendants of cross-lane roots to exclude them from normal positioning
+        const markDescendants = (rootId, targetSet) => {
+            const children = this.state.links
+                .filter(link => link.from === rootId)
+                .map(link => link.to)
+                .filter(childId => {
+                    const child = this.state.passages.get(childId);
+                    return child && child.laneId === lane.id;
+                });
+
+            children.forEach(childId => {
+                targetSet.add(childId);
+                markDescendants(childId, targetSet); // Recursively mark grandchildren
+            });
+        };
+
+        bottomCrossLaneRoots.forEach(rootId => markDescendants(rootId, bottomCrossLaneDescendants));
+        topCrossLaneRoots.forEach(rootId => markDescendants(rootId, topCrossLaneDescendants));
 
         // Position by depth columns
         let currentX = this.CONSTANTS.PASSAGE_PADDING;
@@ -572,11 +615,12 @@ const App = {
             });
         }
 
-        // Then position normal passages and children of cross-lane passages
+        // Then position normal passages (excluding cross-lane passages and their descendants)
         sortedDepths.forEach(depth => {
-            // Only exclude the ROOT cross-lane passages, not their children
+            // Exclude cross-lane roots AND their descendants
             const passagesAtDepth = depthGroups[depth].filter(id =>
-                !bottomCrossLaneRoots.has(id) && !topCrossLaneRoots.has(id));
+                !bottomCrossLaneRoots.has(id) && !topCrossLaneRoots.has(id) &&
+                !bottomCrossLaneDescendants.has(id) && !topCrossLaneDescendants.has(id));
 
             if (passagesAtDepth.length === 0) return; // Skip if all passages are root cross-lane positioned
 
@@ -625,6 +669,17 @@ const App = {
                         const desiredY = parent.relativeY || 0;
                         const actualY = Math.max(desiredY, nextAvailableY);
 
+                        // Debug specific passage
+                        if (passage.title && passage.title === 'ab1a1a1a') {
+                            console.log(`Positioning ${passage.title} as SINGLE CHILD:`, {
+                                parent: parent.title,
+                                desiredY,
+                                actualY,
+                                x: currentX,
+                                depth: depths.get(passages[0])
+                            });
+                        }
+
                         // X position is already set by depth calculation
                         passage.x = currentX;
                         passage.relativeY = actualY;
@@ -645,6 +700,14 @@ const App = {
                         passages.forEach(passageId => {
                             const passage = this.state.passages.get(passageId);
                             if (passage && !positioned.has(passageId)) {
+                                // Debug specific passage
+                                if (passage.title && passage.title === 'ab1a1a1a') {
+                                    console.log(`Positioning ${passage.title} as NORMAL passage (root/orphan):`, {
+                                        x: currentX,
+                                        y: currentY,
+                                        depth: depths.get(passageId)
+                                    });
+                                }
                                 passage.x = currentX;
                                 passage.relativeY = currentY;
                                 positioned.add(passageId);
@@ -660,6 +723,16 @@ const App = {
                     passages.forEach(passageId => {
                         const passage = this.state.passages.get(passageId);
                         if (passage && !positioned.has(passageId)) {
+                            // Debug specific passage
+                            if (passage.title && passage.title === 'ab1a1a1a') {
+                                console.log(`Positioning ${passage.title} as ROOT/ORPHAN:`, {
+                                    parentKey,
+                                    x: currentX,
+                                    y: currentY,
+                                    depth: depths.get(passageId),
+                                    lane: lane.name
+                                });
+                            }
                             passage.x = currentX;
                             passage.relativeY = currentY;
                             positioned.add(passageId);
@@ -677,7 +750,7 @@ const App = {
             }
         });
 
-        // Now position bottom cross-lane ROOT passages only
+        // Now position bottom cross-lane ROOT passages and their children
         if (bottomCrossLaneRoots.size > 0) {
             // Find where to start positioning bottom passages
             const existingPassages = Array.from(this.state.passages.values())
@@ -687,27 +760,179 @@ const App = {
                 : 0;
             bottomY += this.CONSTANTS.PASSAGE_HEIGHT * 2; // Add gap before bottom section
 
-            // Group bottom roots by depth
-            const bottomByDepth = {};
+            // Group bottom cross-lane roots by parent
+            const bottomGroups = {};
             bottomCrossLaneRoots.forEach(passageId => {
-                const depth = depths.get(passageId);
-                if (!bottomByDepth[depth]) bottomByDepth[depth] = [];
-                bottomByDepth[depth].push(passageId);
+                const crossLaneParents = this.findCrossLaneParents(passageId, lane);
+                const parentKey = crossLaneParents.length > 0 ? crossLaneParents[0] : 'orphan';
+
+                if (!bottomGroups[parentKey]) {
+                    bottomGroups[parentKey] = [];
+                }
+                bottomGroups[parentKey].push(passageId);
             });
 
-            // Position each depth group
-            Object.keys(bottomByDepth).sort((a, b) => a - b).forEach(depth => {
-                const depthX = this.CONSTANTS.PASSAGE_PADDING +
-                              (parseInt(depth) * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
+            // First, calculate the total height needed for each root and its descendants
+            const calculateTreeHeight = (rootId) => {
+                // Build the complete tree structure
+                const buildTree = (passageId, visited = new Set()) => {
+                    if (visited.has(passageId)) return { children: [] };
+                    visited.add(passageId);
 
-                bottomByDepth[depth].forEach(passageId => {
-                    const passage = this.state.passages.get(passageId);
-                    if (passage && !positioned.has(passageId)) {
-                        passage.x = depthX;
-                        passage.relativeY = bottomY;
-                        positioned.add(passageId);
-                        bottomY += this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
+                    const children = this.state.links
+                        .filter(link => link.from === passageId)
+                        .map(link => link.to)
+                        .filter(childId => {
+                            const child = this.state.passages.get(childId);
+                            return child && child.laneId === lane.id;
+                        })
+                        .map(childId => buildTree(childId, visited));
+
+                    return { id: passageId, children };
+                };
+
+                // Calculate height needed for a tree node and its children
+                const calculateNodeHeight = (node) => {
+                    if (!node.children || node.children.length === 0) {
+                        return this.CONSTANTS.PASSAGE_HEIGHT;
                     }
+
+                    // For each depth level, find the maximum height needed
+                    let totalHeight = 0;
+
+                    // Group children by their depth relative to this node
+                    const childrenByDepth = {};
+                    const addToDepthMap = (child, depth) => {
+                        if (!childrenByDepth[depth]) {
+                            childrenByDepth[depth] = [];
+                        }
+                        childrenByDepth[depth].push(child);
+
+                        child.children.forEach(grandchild => {
+                            addToDepthMap(grandchild, depth + 1);
+                        });
+                    };
+
+                    node.children.forEach(child => addToDepthMap(child, 1));
+
+                    // Calculate max height needed at each depth
+                    Object.values(childrenByDepth).forEach(nodesAtDepth => {
+                        const heightAtDepth = nodesAtDepth.length * this.CONSTANTS.PASSAGE_HEIGHT +
+                                            (nodesAtDepth.length - 1) * this.CONSTANTS.VERTICAL_SPACING;
+                        totalHeight = Math.max(totalHeight, heightAtDepth);
+                    });
+
+                    // Root needs at least its own height
+                    return Math.max(this.CONSTANTS.PASSAGE_HEIGHT, totalHeight);
+                };
+
+                const tree = buildTree(rootId);
+                return calculateNodeHeight(tree);
+            };
+
+            // Calculate heights for all roots and position them with proper spacing
+            let currentY = bottomY;
+
+            // Track used Y positions at each depth across ALL bottom roots to prevent overlaps
+            const usedYByDepth = {};
+
+            Object.keys(bottomGroups).forEach((parentKey) => {
+                const rootPassages = bottomGroups[parentKey];
+
+                rootPassages.forEach((rootId) => {
+                    const root = this.state.passages.get(rootId);
+                    if (!root) return;
+
+                    // Calculate total height needed for this root and all its descendants
+                    const treeHeight = calculateTreeHeight(rootId);
+
+                    // Position the root
+                    if (!positioned.has(rootId)) {
+                        const depth = depths.get(rootId);
+                        const depthX = this.CONSTANTS.PASSAGE_PADDING +
+                                      (depth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
+
+                        root.x = depthX;
+                        root.relativeY = currentY;
+                        positioned.add(rootId);
+
+                        // Track this root's Y position
+                        if (!usedYByDepth[depth]) {
+                            usedYByDepth[depth] = [];
+                        }
+                        usedYByDepth[depth].push(currentY);
+                    }
+
+                    // Now position all descendants
+                    const positionDescendants = (parentId, parentY) => {
+                        const children = this.state.links
+                            .filter(link => link.from === parentId)
+                            .map(link => link.to)
+                            .filter(childId => {
+                                const child = this.state.passages.get(childId);
+                                return child && child.laneId === lane.id && !positioned.has(childId);
+                            });
+
+                        if (children.length === 0) return;
+
+                        // Position children starting at parent's Y
+                        let childY = parentY;
+
+                        children.forEach((childId, index) => {
+                            const child = this.state.passages.get(childId);
+                            if (child && !positioned.has(childId)) {
+                                const childDepth = depths.get(childId);
+                                const childX = this.CONSTANTS.PASSAGE_PADDING +
+                                              (childDepth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
+
+                                // Check if this Y position is already used at this depth
+                                if (!usedYByDepth[childDepth]) {
+                                    usedYByDepth[childDepth] = [];
+                                }
+
+                                // Find the next available Y position at this depth
+                                let attemptY = childY;
+                                while (usedYByDepth[childDepth].some(y =>
+                                    Math.abs(y - attemptY) < this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING)) {
+                                    attemptY += this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
+                                }
+                                childY = attemptY;
+
+                                // Debug specific passages
+                                if (child.title && child.title === 'ab1a1a1a') {
+                                    console.log(`Positioning ${child.title}:`, {
+                                        parent: this.state.passages.get(parentId)?.title,
+                                        depth: childDepth,
+                                        x: childX,
+                                        y: childY,
+                                        usedAtDepth: usedYByDepth[childDepth]
+                                    });
+                                }
+
+                                child.x = childX;
+                                child.relativeY = childY;
+                                positioned.add(childId);
+                                usedYByDepth[childDepth].push(childY);
+
+                                // Calculate height needed for this child's subtree
+                                const childTreeHeight = calculateTreeHeight(childId);
+
+                                // Recursively position this child's descendants
+                                positionDescendants(childId, childY);
+
+                                // Move Y for next sibling based on subtree height
+                                childY += Math.max(
+                                    this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING,
+                                    childTreeHeight + this.CONSTANTS.VERTICAL_SPACING
+                                );
+                            }
+                        });
+                    };
+
+                    positionDescendants(rootId, root.relativeY);
+
+                    // Move to next root position with the calculated space
+                    currentY += treeHeight + this.CONSTANTS.VERTICAL_SPACING * 2;
                 });
             });
         }
@@ -1043,7 +1268,7 @@ const App = {
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         Swimlanes.renderLanes(this.ctx, this.state.lanes, this.CONSTANTS, this.state.activeLaneId, (lane) => this.calculateLaneHeight(lane), colors);
-        Swimlanes.renderPassages(this.ctx, this.state.passages, this.state.selectedPassage, this.CONSTANTS, this.state.lanes, colors);
+        Swimlanes.renderPassages(this.ctx, this.state.passages, this.state.selectedPassage, this.CONSTANTS, this.state.lanes, colors, this.state.links);
         Swimlanes.renderLinks(this.ctx, this.state.passages, this.state.links, this.CONSTANTS, this.state.lanes, colors);
     },
 
