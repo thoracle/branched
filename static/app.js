@@ -509,19 +509,48 @@ const App = {
         // Start with some padding from the top of the content area
         let topY = this.CONSTANTS.PASSAGE_PADDING;
         if (topCrossLanePassages.size > 0) {
-            // Group by depth and position at top
-            const topByDepth = {};
+            // Group top passages by parent AND depth
+            const topGroups = {};
+
             topCrossLanePassages.forEach(passageId => {
                 const depth = depths.get(passageId);
-                if (!topByDepth[depth]) topByDepth[depth] = [];
-                topByDepth[depth].push(passageId);
+
+                // Find the cross-lane parent for grouping
+                const crossLaneParents = this.findCrossLaneParents(passageId, lane);
+                const parentKey = crossLaneParents.length > 0 ? crossLaneParents[0] : 'orphan';
+
+                const groupKey = `${parentKey}_${depth}`;
+                if (!topGroups[groupKey]) {
+                    topGroups[groupKey] = {
+                        depth: depth,
+                        parentId: parentKey,
+                        passages: []
+                    };
+                }
+                topGroups[groupKey].passages.push(passageId);
             });
 
-            Object.keys(topByDepth).sort((a, b) => a - b).forEach(depth => {
-                const depthX = this.CONSTANTS.PASSAGE_PADDING +
-                              (parseInt(depth) * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
+            // Sort groups by depth first, then by parent
+            const sortedGroups = Object.keys(topGroups).sort((a, b) => {
+                const groupA = topGroups[a];
+                const groupB = topGroups[b];
+                if (groupA.depth !== groupB.depth) {
+                    return groupA.depth - groupB.depth;
+                }
+                // If same depth, group by parent Y position
+                const parentA = this.state.passages.get(groupA.parentId);
+                const parentB = this.state.passages.get(groupB.parentId);
+                return (parentA?.relativeY || 0) - (parentB?.relativeY || 0);
+            });
 
-                topByDepth[depth].forEach(passageId => {
+            // Position each group
+            sortedGroups.forEach(groupKey => {
+                const group = topGroups[groupKey];
+                const depthX = this.CONSTANTS.PASSAGE_PADDING +
+                              (group.depth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
+
+                // Stack passages in this group vertically
+                group.passages.forEach(passageId => {
                     const passage = this.state.passages.get(passageId);
                     if (passage && !positioned.has(passageId)) {
                         passage.x = depthX;
@@ -530,6 +559,14 @@ const App = {
                         topY += this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
                     }
                 });
+
+                // Add extra spacing between different parent groups
+                if (sortedGroups.indexOf(groupKey) < sortedGroups.length - 1) {
+                    const nextGroup = topGroups[sortedGroups[sortedGroups.indexOf(groupKey) + 1]];
+                    if (nextGroup.parentId !== group.parentId) {
+                        topY += this.CONSTANTS.VERTICAL_SPACING; // Extra gap between parent groups
+                    }
+                }
             });
         }
 
@@ -639,12 +676,25 @@ const App = {
 
         // Now position bottom cross-lane passages
         if (bottomCrossLanePassages.size > 0) {
-            // Group bottom passages by their depth for proper X positioning
-            const bottomByDepth = {};
+            // Group bottom passages by parent AND depth
+            const bottomGroups = {};
+
             bottomCrossLanePassages.forEach(passageId => {
                 const depth = depths.get(passageId);
-                if (!bottomByDepth[depth]) bottomByDepth[depth] = [];
-                bottomByDepth[depth].push(passageId);
+
+                // Find the cross-lane parent for grouping
+                const crossLaneParents = this.findCrossLaneParents(passageId, lane);
+                const parentKey = crossLaneParents.length > 0 ? crossLaneParents[0] : 'orphan';
+
+                const groupKey = `${parentKey}_${depth}`;
+                if (!bottomGroups[groupKey]) {
+                    bottomGroups[groupKey] = {
+                        depth: depth,
+                        parentId: parentKey,
+                        passages: []
+                    };
+                }
+                bottomGroups[groupKey].passages.push(passageId);
             });
 
             // Start bottom passages at a large Y value (will be at bottom after normalization)
@@ -653,12 +703,27 @@ const App = {
                 .map(p => p.relativeY || 0);
             let bottomY = (existingYs.length > 0 ? Math.max(...existingYs) : 0) + 200;
 
-            // Position each depth group of bottom passages
-            Object.keys(bottomByDepth).sort((a, b) => a - b).forEach(depth => {
-                const depthX = this.CONSTANTS.PASSAGE_PADDING +
-                              (parseInt(depth) * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
+            // Sort groups by depth first, then by parent
+            const sortedGroups = Object.keys(bottomGroups).sort((a, b) => {
+                const groupA = bottomGroups[a];
+                const groupB = bottomGroups[b];
+                if (groupA.depth !== groupB.depth) {
+                    return groupA.depth - groupB.depth;
+                }
+                // If same depth, group by parent Y position
+                const parentA = this.state.passages.get(groupA.parentId);
+                const parentB = this.state.passages.get(groupB.parentId);
+                return (parentA?.relativeY || 0) - (parentB?.relativeY || 0);
+            });
 
-                bottomByDepth[depth].forEach(passageId => {
+            // Position each group
+            sortedGroups.forEach(groupKey => {
+                const group = bottomGroups[groupKey];
+                const depthX = this.CONSTANTS.PASSAGE_PADDING +
+                              (group.depth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
+
+                // Stack passages in this group vertically
+                group.passages.forEach(passageId => {
                     const passage = this.state.passages.get(passageId);
                     if (passage && !positioned.has(passageId)) {
                         passage.x = depthX;
@@ -667,6 +732,14 @@ const App = {
                         bottomY += this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
                     }
                 });
+
+                // Add extra spacing between different parent groups
+                if (sortedGroups.indexOf(groupKey) < sortedGroups.length - 1) {
+                    const nextGroup = bottomGroups[sortedGroups[sortedGroups.indexOf(groupKey) + 1]];
+                    if (nextGroup.parentId !== group.parentId) {
+                        bottomY += this.CONSTANTS.VERTICAL_SPACING; // Extra gap between parent groups
+                    }
+                }
             });
         }
 
