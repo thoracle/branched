@@ -237,9 +237,6 @@ const Swimlanes = {
     },
 
     renderLinks(ctx, passages, links, constants, lanes, colors) {
-        ctx.strokeStyle = colors.linkColor;
-        ctx.lineWidth = 1;
-
         links.forEach(link => {
             const fromPassage = passages.get(link.from);
             const toPassage = passages.get(link.to);
@@ -253,6 +250,20 @@ const Swimlanes = {
 
             if (!fromPassage || !toPassage) return;
 
+            // Check if this is a cross-lane connection
+            const isCrossLane = fromPassage.laneId !== toPassage.laneId;
+
+            // Set style based on connection type
+            if (isCrossLane) {
+                ctx.strokeStyle = colors.crossLaneLinkColor || '#ff9500';  // Orange for cross-lane
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);  // Dashed line
+            } else {
+                ctx.strokeStyle = colors.linkColor;
+                ctx.lineWidth = 1;
+                ctx.setLineDash([]);  // Solid line
+            }
+
             // Arrow originates from right side of parent, centered vertically
             const fromX = fromPassage.x + constants.PASSAGE_WIDTH;
             const fromY = fromPassage.y + constants.PASSAGE_HEIGHT / 2;
@@ -264,7 +275,7 @@ const Swimlanes = {
             ctx.beginPath();
             ctx.moveTo(fromX, fromY);
 
-            if (fromPassage.laneId === toPassage.laneId) {
+            if (!isCrossLane) {
                 // Same lane - use curved connection
                 const midX = fromX + (toX - fromX) / 2;
                 ctx.bezierCurveTo(
@@ -273,11 +284,13 @@ const Swimlanes = {
                     toX, toY
                 );
             } else {
-                // Different lanes - use straight line
-                ctx.lineTo(toX, toY);
+                // Different lanes - use straight line with slight curve for aesthetics
+                const midX = fromX + (toX - fromX) / 2;
+                ctx.quadraticCurveTo(midX, (fromY + toY) / 2, toX, toY);
             }
 
             ctx.stroke();
+            ctx.setLineDash([]);  // Reset line dash for arrowhead
 
             // Draw arrowhead at the destination
             const angle = Math.atan2(toY - fromY, toX - fromX);

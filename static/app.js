@@ -30,6 +30,7 @@ const App = {
             passageTitle: '#333333',
             passageContent: '#666666',
             linkColor: '#666666',
+            crossLaneLinkColor: '#ff9500',
             borderColor: '#cccccc',
             borderColorActive: '#0066cc'
         },
@@ -50,6 +51,7 @@ const App = {
             passageTitle: '#ffffff',
             passageContent: '#bbbbbb',
             linkColor: '#888888',
+            crossLaneLinkColor: '#ffa726',
             borderColor: '#444444',
             borderColorActive: '#4499ff'
         }
@@ -466,7 +468,14 @@ const App = {
             // Group passages by their parent for vertical stacking
             const parentGroups = {};
             passagesAtDepth.forEach(passageId => {
-                const parents = this.findParentsInLane(passageId, lane);
+                // Find parents in this lane first
+                let parents = this.findParentsInLane(passageId, lane);
+
+                // If no parents in this lane, check for cross-lane parents
+                if (parents.length === 0) {
+                    parents = this.findCrossLaneParents(passageId, lane);
+                }
+
                 const parentKey = parents.length > 0 ? parents[0] : 'root';
                 if (!parentGroups[parentKey]) parentGroups[parentKey] = [];
                 parentGroups[parentKey].push(passageId);
@@ -499,7 +508,12 @@ const App = {
                         const desiredY = parent.relativeY || 0;
                         const actualY = Math.max(desiredY, nextAvailableY);
 
-                        passage.x = currentX;
+                        // For cross-lane links, match parent's X position
+                        if (parent.laneId !== lane.id) {
+                            passage.x = parent.x;
+                        } else {
+                            passage.x = currentX;
+                        }
                         passage.relativeY = actualY;
                         positioned.add(passages[0]);
 
@@ -515,10 +529,13 @@ const App = {
                         const actualStartY = Math.max(desiredStartY, nextAvailableY);
                         let currentY = actualStartY;
 
+                        // Determine X position based on parent lane
+                        const xPosition = parent.laneId !== lane.id ? parent.x : currentX;
+
                         passages.forEach(passageId => {
                             const passage = this.state.passages.get(passageId);
                             if (passage && !positioned.has(passageId)) {
-                                passage.x = currentX;
+                                passage.x = xPosition;
                                 passage.relativeY = currentY;
                                 positioned.add(passageId);
                                 currentY += this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
@@ -616,6 +633,16 @@ const App = {
             .filter(link => {
                 const fromPassage = this.state.passages.get(link.from);
                 return link.to === passageId && fromPassage && fromPassage.laneId === lane.id;
+            })
+            .map(link => link.from);
+    },
+
+    findCrossLaneParents(passageId, lane) {
+        // Find parents from other lanes
+        return this.state.links
+            .filter(link => {
+                const fromPassage = this.state.passages.get(link.from);
+                return link.to === passageId && fromPassage && fromPassage.laneId !== lane.id;
             })
             .map(link => link.from);
     },
