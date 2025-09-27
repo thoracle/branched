@@ -844,15 +844,15 @@ const App = {
             const tagString = match[2] ? match[2].trim() : '';
             const passageContent = match[3].trim();
 
-            // Parse tags - look for lane: prefix for lane assignment
+            // Parse tags - look for $lane: prefix for lane assignment
             const tagArray = tagString.split(/\s+/).filter(t => t);
             let laneName = 'Main';
             const passageTags = [];
 
             // Check for lane assignment and separate from regular tags
             tagArray.forEach(tag => {
-                if (tag.startsWith('lane:')) {
-                    laneName = tag.substring(5);
+                if (tag.startsWith('$lane:')) {
+                    laneName = tag.substring(6);
                 } else {
                     passageTags.push(tag);
                 }
@@ -920,7 +920,7 @@ const App = {
 
             // Add lane tag if not metadata lane
             if (lane && !lane.isMetadata && lane.name !== 'Main') {
-                tagArray.push(`lane:${lane.name}`);
+                tagArray.push(`$lane:${lane.name}`);
             }
 
             const tagString = tagArray.length > 0 ? ` [${tagArray.join(' ')}]` : '';
