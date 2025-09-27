@@ -509,14 +509,14 @@ const App = {
         let currentX = this.CONSTANTS.PASSAGE_PADDING;
         const sortedDepths = Object.keys(depthGroups).sort((a, b) => a - b);
 
-        // First position top cross-lane passages
+        // First position top cross-lane root passages
         // Start with some padding from the top of the content area
         let topY = this.CONSTANTS.PASSAGE_PADDING;
-        if (topCrossLanePassages.size > 0) {
-            // Group top passages by parent AND depth
+        if (topCrossLaneRoots.size > 0) {
+            // Group top root passages by parent AND depth
             const topGroups = {};
 
-            topCrossLanePassages.forEach(passageId => {
+            topCrossLaneRoots.forEach(passageId => {
                 const depth = depths.get(passageId);
 
                 // Find the cross-lane parent for grouping
@@ -588,12 +588,13 @@ const App = {
             });
         }
 
-        // Then position normal passages
+        // Then position normal passages and children of cross-lane passages
         sortedDepths.forEach(depth => {
+            // Only exclude the ROOT cross-lane passages, not their children
             const passagesAtDepth = depthGroups[depth].filter(id =>
-                !bottomCrossLanePassages.has(id) && !topCrossLanePassages.has(id));
+                !bottomCrossLaneRoots.has(id) && !topCrossLaneRoots.has(id));
 
-            if (passagesAtDepth.length === 0) return; // Skip if all passages are cross-lane positioned
+            if (passagesAtDepth.length === 0) return; // Skip if all passages are root cross-lane positioned
 
             // Group passages by their parent for vertical stacking
             const parentGroups = {};
@@ -745,14 +746,9 @@ const App = {
                             desiredY = crossParent ? (crossParent.relativeY || 0) : 0;
                         }
 
-                        // Ensure we don't overlap with already positioned passages
-                        const minY = Math.max(...Array.from(this.state.passages.values())
-                            .filter(p => p.laneId === lane.id && positioned.has(p.id))
-                            .map(p => (p.relativeY || 0) + this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING)
-                            .concat([desiredY]));
-
+                        // For now, just use the desired position based on children/parent
                         passage.x = depthX;
-                        passage.relativeY = minY;
+                        passage.relativeY = desiredY;
                         positioned.add(passageId);
                     }
                 });
