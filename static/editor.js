@@ -16,31 +16,6 @@ const Editor = {
 
         closeBtn.addEventListener('click', () => this.close());
 
-        // Handle clicks on tag examples
-        document.addEventListener('click', (e) => {
-            if (e.target.tagName === 'CODE' && e.target.closest('.tag-help')) {
-                const tag = e.target.textContent;
-                const currentTags = tagsInput.value.trim();
-
-                // For $lane: tag, prompt for lane name
-                if (tag === '$lane:Name') {
-                    const laneName = prompt('Enter lane name:');
-                    if (laneName) {
-                        const newTag = `$lane:${laneName}`;
-                        tagsInput.value = currentTags ? `${currentTags} ${newTag}` : newTag;
-                    }
-                } else {
-                    // Add tag if not already present
-                    if (!currentTags.split(/\s+/).includes(tag)) {
-                        tagsInput.value = currentTags ? `${currentTags} ${tag}` : tag;
-                    }
-                }
-
-                // Trigger input event to save
-                tagsInput.dispatchEvent(new Event('input'));
-            }
-        });
-
         deleteBtn.addEventListener('click', () => {
             if (this.currentPassage && confirm('Delete this passage?')) {
                 this.app.deletePassage(this.currentPassage.id);
@@ -88,7 +63,22 @@ const Editor = {
         const contentInput = document.getElementById('passage-content');
 
         titleInput.value = passage.title || '';
-        tagsInput.value = passage.tags || '';
+
+        // Build complete tags string including system tags
+        const tagArray = [];
+
+        // Add existing passage tags
+        if (passage.tags) {
+            tagArray.push(...passage.tags.split(/\s+/).filter(t => t && !t.startsWith('$lane:')));
+        }
+
+        // Add lane tag if not in Metadata or Main lane
+        const lane = this.app.state.lanes.find(l => l.id === passage.laneId);
+        if (lane && !lane.isMetadata && lane.name !== 'Main') {
+            tagArray.push(`$lane:${lane.name}`);
+        }
+
+        tagsInput.value = tagArray.join(' ');
         contentInput.value = passage.content || '';
 
         panel.classList.remove('hidden');

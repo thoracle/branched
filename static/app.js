@@ -666,6 +666,45 @@ const App = {
     updatePassage(passageId, updates) {
         const passage = this.state.passages.get(passageId);
         if (passage) {
+            // Check if tags are being updated and handle $lane: tag
+            if (updates.tags !== undefined) {
+                const tagArray = updates.tags.split(/\s+/).filter(t => t);
+                const regularTags = [];
+                let newLaneId = null;
+
+                tagArray.forEach(tag => {
+                    if (tag.startsWith('$lane:')) {
+                        const laneName = tag.substring(6);
+                        // Find the lane with this name
+                        const targetLane = this.state.lanes.find(l => l.name === laneName);
+                        if (targetLane) {
+                            newLaneId = targetLane.id;
+                        }
+                    } else {
+                        regularTags.push(tag);
+                    }
+                });
+
+                // Update tags without the $lane: tag (it's implicit from laneId)
+                updates.tags = regularTags.join(' ');
+
+                // If lane was changed, move the passage
+                if (newLaneId && newLaneId !== passage.laneId) {
+                    // Remove from old lane
+                    const oldLane = this.state.lanes.find(l => l.id === passage.laneId);
+                    if (oldLane) {
+                        oldLane.passages = oldLane.passages.filter(id => id !== passageId);
+                    }
+
+                    // Add to new lane
+                    const newLane = this.state.lanes.find(l => l.id === newLaneId);
+                    if (newLane) {
+                        newLane.passages.push(passageId);
+                        passage.laneId = newLaneId;
+                    }
+                }
+            }
+
             Object.assign(passage, updates);
             this.extractLinks();
             this.autoCreateLinkedPassages(passage);
