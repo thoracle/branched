@@ -489,15 +489,64 @@ const App = {
             parentKeys.sort((a, b) => {
                 if (a === 'root') return -1;
                 if (b === 'root') return 1;
-                // Sort by parent's Y position for non-root passages
+
                 const parentA = this.state.passages.get(a);
                 const parentB = this.state.passages.get(b);
+
+                // Check if parents are from different lanes (cross-lane)
+                const isACrossLane = parentA && parentA.laneId !== lane.id;
+                const isBCrossLane = parentB && parentB.laneId !== lane.id;
+
+                // If one is cross-lane and the other isn't, handle specially
+                if (isACrossLane && !isBCrossLane) {
+                    // Check if parent lane is above or below current lane
+                    const parentLaneIndex = this.state.lanes.findIndex(l => l.id === parentA.laneId);
+                    const currentLaneIndex = this.state.lanes.findIndex(l => l.id === lane.id);
+                    // If parent is above, put at top; if below, put at bottom
+                    return parentLaneIndex < currentLaneIndex ? -1 : 1;
+                }
+                if (!isACrossLane && isBCrossLane) {
+                    const parentLaneIndex = this.state.lanes.findIndex(l => l.id === parentB.laneId);
+                    const currentLaneIndex = this.state.lanes.findIndex(l => l.id === lane.id);
+                    return parentLaneIndex < currentLaneIndex ? 1 : -1;
+                }
+
+                // If both are cross-lane, sort by parent lane position
+                if (isACrossLane && isBCrossLane) {
+                    const parentALaneIndex = this.state.lanes.findIndex(l => l.id === parentA.laneId);
+                    const parentBLaneIndex = this.state.lanes.findIndex(l => l.id === parentB.laneId);
+                    return parentALaneIndex - parentBLaneIndex;
+                }
+
+                // Otherwise sort by parent's Y position for non-root passages
                 return (parentA?.relativeY || 0) - (parentB?.relativeY || 0);
             });
 
-            let nextAvailableY = -Infinity;
+            // For cross-lane passages from below, we'll position from bottom
+            // First pass: position normal and top cross-lane passages
+            let nextAvailableYTop = -Infinity;
+            const bottomCrossLaneGroups = [];
 
             parentKeys.forEach(parentKey => {
+                if (parentKey === 'root') return; // Handle roots separately
+
+                const parent = this.state.passages.get(parentKey);
+                if (parent && parent.laneId !== lane.id) {
+                    const parentLaneIndex = this.state.lanes.findIndex(l => l.id === parent.laneId);
+                    const currentLaneIndex = this.state.lanes.findIndex(l => l.id === lane.id);
+                    if (parentLaneIndex > currentLaneIndex) {
+                        // Parent is below - save for bottom positioning
+                        bottomCrossLaneGroups.push(parentKey);
+                        return;
+                    }
+                }
+            });
+
+            let nextAvailableY = nextAvailableYTop;
+
+            parentKeys.forEach(parentKey => {
+                // Skip bottom cross-lane groups for now
+                if (bottomCrossLaneGroups.includes(parentKey)) return;
                 const passages = parentGroups[parentKey];
 
                 if (passages.length === 1 && parentKey !== 'root') {
@@ -552,6 +601,38 @@ const App = {
                     nextAvailableY = currentY;
                 }
             });
+
+            // Now handle bottom cross-lane groups
+            // We'll position these from the bottom of available space
+            if (bottomCrossLaneGroups.length > 0) {
+                // Calculate total height needed for bottom groups
+                let totalBottomHeight = 0;
+                bottomCrossLaneGroups.forEach(parentKey => {
+                    const passages = parentGroups[parentKey];
+                    totalBottomHeight += passages.length * this.CONSTANTS.PASSAGE_HEIGHT +
+                                       (passages.length - 1) * this.CONSTANTS.VERTICAL_SPACING;
+                    totalBottomHeight += this.CONSTANTS.VERTICAL_SPACING; // Gap between groups
+                });
+
+                // Start from a position that will put these at the bottom
+                // Use a large initial Y that will get normalized later
+                let bottomY = Math.max(nextAvailableY + 100, 500);
+
+                bottomCrossLaneGroups.forEach(parentKey => {
+                    const passages = parentGroups[parentKey];
+                    const parent = this.state.passages.get(parentKey);
+
+                    passages.forEach(passageId => {
+                        const passage = this.state.passages.get(passageId);
+                        if (passage && !positioned.has(passageId)) {
+                            passage.x = currentX;
+                            passage.relativeY = bottomY;
+                            positioned.add(passageId);
+                            bottomY += this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
+                        }
+                    });
+                });
+            }
 
             // Move to next column
             currentX += this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING;
