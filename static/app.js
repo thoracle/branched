@@ -7,7 +7,8 @@ const App = {
         activeLaneId: null,
         nextPassageId: 1,
         nextLaneId: 1,
-        darkMode: false
+        darkMode: false,
+        showCrossLaneLinks: false
     },
 
     colors: {
@@ -95,6 +96,12 @@ const App = {
         // Initialize Editor and Search
         Editor.init(this);
         Search.init(this);
+
+        // Initialize cross-lane toggle button state
+        const crossLaneBtn = document.getElementById('cross-lane-toggle');
+        if (crossLaneBtn) {
+            crossLaneBtn.style.opacity = this.state.showCrossLaneLinks ? '1' : '0.5';
+        }
     },
 
     cleanupStorage() {
@@ -212,6 +219,7 @@ const App = {
         document.getElementById('export-btn').addEventListener('click', () => this.exportTwee());
         document.getElementById('clear-storage-btn').addEventListener('click', () => this.clearStorage());
         document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
+        document.getElementById('cross-lane-toggle').addEventListener('click', () => this.toggleCrossLaneLinks());
 
         // Load available projects on init
         this.loadProjectList();
@@ -1381,7 +1389,7 @@ const App = {
             // Render normal content
             Swimlanes.renderLanes(this.ctx, this.state.lanes, this.CONSTANTS, this.state.activeLaneId, (lane) => this.calculateLaneHeight(lane), colors, (lane) => this.getLaneImage(lane));
             Swimlanes.renderPassages(this.ctx, this.state.passages, this.state.selectedPassage, this.CONSTANTS, this.state.lanes, colors, this.state.links);
-            Swimlanes.renderLinks(this.ctx, this.state.passages, this.state.links, this.CONSTANTS, this.state.lanes, colors);
+            Swimlanes.renderLinks(this.ctx, this.state.passages, this.state.links, this.CONSTANTS, this.state.lanes, colors, this.state.showCrossLaneLinks);
         }
     },
 
@@ -1434,6 +1442,18 @@ const App = {
             // Show notification
             this.showNotification('All local data cleared successfully');
         }
+    },
+
+    toggleCrossLaneLinks() {
+        this.state.showCrossLaneLinks = !this.state.showCrossLaneLinks;
+
+        // Update button appearance
+        const btn = document.getElementById('cross-lane-toggle');
+        btn.style.opacity = this.state.showCrossLaneLinks ? '1' : '0.5';
+
+        // Re-render to show/hide cross-lane links
+        this.render();
+        this.saveToStorage();
     },
 
     toggleTheme() {

@@ -267,13 +267,34 @@ body.dark-mode #goto-parent:disabled {
     background: #cc0000;
 }
 
-/* Content with links styling */
-.content-with-links {
-    cursor: text;
+/* Link buttons in editor */
+#link-buttons-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin: 10px 0;
 }
 
-.content-with-links:hover {
-    cursor: text;
+.link-button {
+    padding: 5px 10px;
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.link-button:hover {
+    background: #0056b3;
+}
+
+.dark-mode .link-button {
+    background: #0056b3;
+}
+
+.dark-mode .link-button:hover {
+    background: #004085;
 }
 
 input:focus,

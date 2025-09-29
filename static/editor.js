@@ -1,25 +1,20 @@
 const Editor = {
-    app: null,
     currentPassage: null,
-    updating: false, // Flag to prevent recursive updates
+    updating: false,
 
     init(app) {
         this.app = app;
-        this.bindEvents();
-    },
 
-    bindEvents() {
         const closeBtn = document.getElementById('close-editor');
         const deleteBtn = document.getElementById('delete-passage');
-        const parentBtn = document.getElementById('goto-parent');
         const titleInput = document.getElementById('passage-title');
         const tagsInput = document.getElementById('passage-tags');
         const contentInput = document.getElementById('passage-content');
+        const parentBtn = document.getElementById('goto-parent');
 
         closeBtn.addEventListener('click', () => this.close());
-
         deleteBtn.addEventListener('click', () => {
-            if (this.currentPassage && confirm('Delete this passage?')) {
+            if (this.currentPassage && confirm('Are you sure you want to delete this passage?')) {
                 this.app.deletePassage(this.currentPassage.id);
                 this.close();
             }
@@ -31,38 +26,34 @@ const Editor = {
             }
         });
 
-        titleInput.addEventListener('input', (e) => {
-            if (this.currentPassage && !this.updating) {
-                this.app.updatePassage(this.currentPassage.id, {
-                    title: e.target.value
-                });
+        // Update passage data on input
+        titleInput.addEventListener('input', () => this.updatePassage());
+        tagsInput.addEventListener('input', () => this.updatePassage());
+        contentInput.addEventListener('input', () => {
+            this.updatePassage();
+            // Update link buttons when content changes
+            if (this.currentPassage) {
+                this.updateLinkButtons(this.currentPassage);
             }
         });
 
-        tagsInput.addEventListener('input', (e) => {
-            if (this.currentPassage && !this.updating) {
-                this.app.updatePassage(this.currentPassage.id, {
-                    tags: e.target.value
-                });
+        // Allow Tab key in content textarea
+        contentInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = contentInput.selectionStart;
+                const end = contentInput.selectionEnd;
+                const value = contentInput.value;
+
+                // Insert tab character
+                contentInput.value = value.substring(0, start) + '\t' + value.substring(end);
+
+                // Move cursor after the tab
+                contentInput.selectionStart = contentInput.selectionEnd = start + 1;
+
+                // Trigger input event to save changes
+                contentInput.dispatchEvent(new Event('input'));
             }
-        });
-
-        contentInput.addEventListener('input', (e) => {
-            if (this.currentPassage && !this.updating) {
-                this.app.updatePassage(this.currentPassage.id, {
-                    content: e.target.value
-                });
-            }
-        });
-
-        // Add click handler to detect clicks on links
-        contentInput.addEventListener('click', (e) => {
-            this.handleContentClick(e);
-        });
-
-        // Add mousemove handler to change cursor over links
-        contentInput.addEventListener('mousemove', (e) => {
-            this.handleContentMouseMove(e);
         });
 
         document.addEventListener('keydown', (e) => {
@@ -73,9 +64,12 @@ const Editor = {
     },
 
     open(passage) {
-        this.currentPassage = passage;
-        this.updating = true; // Prevent recursive updates during initialization
+        if (!passage) return;
 
+        // Set updating flag to prevent recursive updates
+        this.updating = true;
+
+        this.currentPassage = passage;
         const panel = document.getElementById('editor-panel');
         const titleInput = document.getElementById('passage-title');
         const tagsInput = document.getElementById('passage-tags');
@@ -112,11 +106,53 @@ const Editor = {
             parentBtn.textContent = 'No Parent';
         }
 
+        // Create link buttons for all links in the passage
+        this.updateLinkButtons(passage);
+
         panel.classList.remove('hidden');
         titleInput.focus();
 
         // Re-enable updates after initialization
         this.updating = false;
+    },
+
+    updateLinkButtons(passage) {
+        const linkButtonsContainer = document.getElementById('link-buttons-container');
+        linkButtonsContainer.innerHTML = ''; // Clear existing buttons
+
+        // Extract links from content
+        const linkRegex = /\[\[([^\]]+)\]\]/g;
+        let match;
+        const links = [];
+
+        while ((match = linkRegex.exec(passage.content)) !== null) {
+            const linkText = match[1];
+            let displayText = linkText;
+            let targetTitle = linkText;
+
+            // Handle [[display|target]] format
+            if (linkText.includes('|')) {
+                const parts = linkText.split('|');
+                displayText = parts[0].trim();
+                targetTitle = parts[1].trim();
+            }
+
+            // Avoid duplicates
+            if (!links.some(l => l.target === targetTitle)) {
+                links.push({ display: displayText, target: targetTitle });
+            }
+        }
+
+        // Create a button for each link
+        links.forEach(link => {
+            const linkBtn = document.createElement('button');
+            linkBtn.className = 'link-button';
+            linkBtn.textContent = `Link: ${link.display}`;
+            linkBtn.addEventListener('click', () => {
+                this.navigateToPassage(link.target);
+            });
+            linkButtonsContainer.appendChild(linkBtn);
+        });
     },
 
     close() {
@@ -125,103 +161,6 @@ const Editor = {
         this.currentPassage = null;
         this.app.selectPassage(null);
         this.app.render();
-    },
-
-    handleContentClick(e) {
-        const textarea = e.target;
-        const clickPos = textarea.selectionStart;
-        const content = textarea.value;
-
-        // Find if we clicked on a link
-        const linkRegex = /\[\[([^\]]+)\]\]/g;
-        let match;
-
-        while ((match = linkRegex.exec(content)) !== null) {
-            const linkStart = match.index;
-            const linkEnd = match.index + match[0].length;
-
-            // Check if click was within this link
-            if (clickPos >= linkStart && clickPos <= linkEnd) {
-                const linkText = match[1];
-                let targetPassage = linkText;
-
-                // Handle pipe notation [[display|target]]
-                if (linkText.includes('|')) {
-                    const parts = linkText.split('|');
-                    targetPassage = parts[1].trim();
-                }
-
-                // Navigate to the target passage
-                this.navigateToPassage(targetPassage);
-                break;
-            }
-        }
-    },
-
-    handleContentMouseMove(e) {
-        const textarea = e.target;
-
-        // Simple approach: just set cursor to pointer for entire textarea if it contains links
-        // More precise detection in textareas is very complex
-        const linkRegex = /\[\[([^\]]+)\]\]/g;
-        const hasLinks = linkRegex.test(textarea.value);
-
-        if (!hasLinks) {
-            textarea.style.cursor = 'text';
-            return;
-        }
-
-        // Get approximate position based on mouse coordinates
-        const rect = textarea.getBoundingClientRect();
-        const x = e.clientX - rect.left - parseInt(window.getComputedStyle(textarea).paddingLeft);
-        const y = e.clientY - rect.top - parseInt(window.getComputedStyle(textarea).paddingTop);
-
-        // Get font metrics
-        const style = window.getComputedStyle(textarea);
-        const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.43;
-        const charWidth = parseFloat(style.fontSize) * 0.55; // Approximate for monospace
-
-        // Calculate approximate character position
-        const col = Math.round(x / charWidth);
-        const row = Math.floor((y + textarea.scrollTop) / lineHeight);
-
-        // Find position in text
-        const lines = textarea.value.split('\n');
-        let textPos = 0;
-
-        // Ensure row is within bounds
-        const validRow = Math.min(row, lines.length - 1);
-        if (validRow < 0) {
-            textarea.style.cursor = 'text';
-            return;
-        }
-
-        for (let i = 0; i < validRow; i++) {
-            textPos += lines[i].length + 1; // +1 for newline
-        }
-
-        // Add column position, ensuring it's within the line length
-        textPos += Math.min(col, lines[validRow].length);
-
-        // Check if this position is within a link
-        let overLink = false;
-        linkRegex.lastIndex = 0; // Reset regex
-
-        let match;
-        while ((match = linkRegex.exec(textarea.value)) !== null) {
-            if (textPos >= match.index && textPos <= match.index + match[0].length) {
-                overLink = true;
-                break;
-            }
-        }
-
-        textarea.style.cursor = overLink ? 'pointer' : 'text';
-    },
-
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
     },
 
     navigateToPassage(targetTitle) {
@@ -235,9 +174,6 @@ const Editor = {
         }
 
         if (targetPassage) {
-            // Close current editor
-            this.close();
-
             // If target is in a different lane, switch to it
             if (targetPassage.laneId !== this.app.state.activeLaneId) {
                 this.app.selectLane(targetPassage.laneId);
@@ -249,46 +185,74 @@ const Editor = {
             this.app.render();
             // Use setTimeout to ensure render completes before centering
             setTimeout(() => {
-                this.app.centerOnPassage(targetPassage);
-            }, 10);
+                this.app.centerOnPassage(targetPassage.id);
+            }, 0);
             this.open(targetPassage);
         } else {
-            // Passage doesn't exist yet - offer to create it
-            if (confirm(`Passage "${targetTitle}" doesn't exist yet. Create it now?`)) {
-                // Store current lane before closing
-                const currentPassageLaneId = this.currentPassage.laneId;
+            console.warn('Passage not found:', targetTitle);
+        }
+    },
 
-                // Close current editor
-                this.close();
+    updatePassage() {
+        // Don't update if we're in the process of opening (prevents recursion)
+        if (this.updating || !this.currentPassage) return;
 
-                // Create the new passage in the same lane
-                const newPassage = {
-                    id: `passage_${this.app.state.nextPassageId++}`,
-                    title: targetTitle,
-                    tags: '',
-                    content: '',
-                    laneId: currentPassageLaneId,
-                    x: 0,
-                    y: 0
-                };
+        const titleInput = document.getElementById('passage-title');
+        const tagsInput = document.getElementById('passage-tags');
+        const contentInput = document.getElementById('passage-content');
 
-                this.app.state.passages.set(newPassage.id, newPassage);
+        const newTitle = titleInput.value.trim();
+        const tags = tagsInput.value.trim();
+        const content = contentInput.value;
 
-                // Add to lane
-                const lane = this.app.state.lanes.find(l => l.id === currentPassageLaneId);
-                if (lane) {
-                    lane.passages.push(newPassage.id);
-                }
+        // Parse tags - extract lane tag and regular tags
+        const tagArray = tags.split(/\s+/).filter(t => t);
+        let laneTag = null;
+        const regularTags = [];
 
-                // Update positions and open the new passage
-                this.app.updateAllLanePositions();
-                this.app.render();
-                this.app.saveToStorage();
-
-                this.app.selectPassage(newPassage);
-                this.app.centerOnPassage(newPassage);
-                this.open(newPassage);
+        tagArray.forEach(tag => {
+            if (tag.startsWith('$lane:')) {
+                laneTag = tag.substring(6);
+            } else {
+                regularTags.push(tag);
             }
+        });
+
+        const updates = {};
+
+        // Check if title changed
+        if (newTitle !== this.currentPassage.title) {
+            updates.title = newTitle;
+        }
+
+        // Check if tags changed
+        const newTags = regularTags.join(' ');
+        if (newTags !== this.currentPassage.tags) {
+            updates.tags = newTags;
+        }
+
+        // Check if content changed
+        if (content !== this.currentPassage.content) {
+            updates.content = content;
+        }
+
+        // Check if lane changed
+        if (laneTag) {
+            let targetLane = this.app.state.lanes.find(l => l.name === laneTag && !l.isMetadata);
+
+            if (!targetLane) {
+                // Create new lane if it doesn't exist (unless trying to use metadata lane)
+                targetLane = this.app.addLane(laneTag);
+            }
+
+            if (targetLane && targetLane.id !== this.currentPassage.laneId) {
+                updates.laneId = targetLane.id;
+            }
+        }
+
+        // Apply updates if any
+        if (Object.keys(updates).length > 0) {
+            this.app.updatePassage(this.currentPassage.id, updates);
         }
     }
 };

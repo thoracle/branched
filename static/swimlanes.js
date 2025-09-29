@@ -331,7 +331,7 @@ const Swimlanes = {
         return bestFit + ellipsis;
     },
 
-    renderLinks(ctx, passages, links, constants, lanes, colors) {
+    renderLinks(ctx, passages, links, constants, lanes, colors, showCrossLaneLinks = false) {
         links.forEach(link => {
             const fromPassage = passages.get(link.from);
             const toPassage = passages.get(link.to);
@@ -347,6 +347,9 @@ const Swimlanes = {
 
             // Check if this is a cross-lane connection
             const isCrossLane = fromPassage.laneId !== toPassage.laneId;
+
+            // Skip cross-lane links if toggle is off
+            if (isCrossLane && !showCrossLaneLinks) return;
 
             // Set style based on connection type
             if (isCrossLane) {
