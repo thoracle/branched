@@ -19,6 +19,19 @@ class BranchEdHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed_path = urllib.parse.urlparse(self.path)
 
+        # Handle favicon specially
+        if parsed_path.path == '/favicon.ico':
+            favicon_path = Path(__file__).parent.parent / "favicon.ico"
+            if favicon_path.exists():
+                self.send_response(200)
+                self.send_header('Content-type', 'image/x-icon')
+                self.end_headers()
+                with open(favicon_path, 'rb') as f:
+                    self.wfile.write(f.read())
+            else:
+                self.send_error(404, "Favicon not found")
+            return
+
         # Handle API endpoints
         if parsed_path.path == '/api/games':
             self.send_games_list()
@@ -43,7 +56,7 @@ class BranchEdHandler(SimpleHTTPRequestHandler):
                                 config = json.load(f)
                                 games.append({
                                     'id': game_dir.name,
-                                    'name': config.get('game_name', game_dir.name),
+                                    'name': config.get('title', config.get('game_name', game_dir.name)),
                                     'version': config.get('version', 'Unknown'),
                                     'path': str(game_dir.relative_to(games_dir.parent))
                                 })

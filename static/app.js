@@ -1522,8 +1522,8 @@ const App = {
                 this.render();
                 this.saveToStorage();
 
-                this.showNotification(`Loaded project: ${gameData.config.game_name}`, 'success');
-                console.log(`Project loaded: ${gameData.config.game_name}`);
+                this.showNotification(`Loaded project: ${gameData.config.title || gameData.config.game_name}`, 'success');
+                console.log(`Project loaded: ${gameData.config.title || gameData.config.game_name}`);
             } else {
                 // Story file not found on server
                 const storyFile = gameData.config.story_settings?.main_story_file;
@@ -1632,7 +1632,7 @@ Use Ctrl/Cmd+click to select multiple files`;
                 this.saveToStorage();
 
                 // Show success
-                console.log(`✓ Project loaded: ${gameConfig.game_name}`);
+                console.log(`✓ Project loaded: ${gameConfig.title || gameConfig.game_name}`);
                 console.log(`  Version: ${gameConfig.version}`);
                 console.log(`  Story: ${foundStoryFile.name}`);
 
@@ -1682,7 +1682,7 @@ Use Ctrl/Cmd+click to select multiple files`;
                 this.saveToStorage();
 
                 // Show success
-                console.log(`✓ Project loaded: ${gameConfig.game_name}`);
+                console.log(`✓ Project loaded: ${gameConfig.title || gameConfig.game_name}`);
                 console.log(`  Version: ${gameConfig.version}`);
                 console.log(`  Story: ${storyFile.name}`);
 
@@ -1883,7 +1883,7 @@ Use Ctrl/Cmd+click to select multiple files`;
                     this.render();
                     this.saveToStorage();
 
-                    console.log(`Project loaded: ${gameConfig.game_name || 'Unknown'}`);
+                    console.log(`Project loaded: ${gameConfig.title || gameConfig.game_name || 'Unknown'}`);
                     console.log(`Story file: ${storyFileName}`);
                 };
                 reader.readAsText(storyFile);
@@ -1931,7 +1931,7 @@ Use Ctrl/Cmd+click to select multiple files`;
                 this.render();
                 this.saveToStorage();
 
-                console.log(`Project loaded: ${this.currentProjectConfig?.game_name || 'Unknown'}`);
+                console.log(`Project loaded: ${this.currentProjectConfig?.title || this.currentProjectConfig?.game_name || 'Unknown'}`);
             };
             reader.readAsText(file);
         };
