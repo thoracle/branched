@@ -706,7 +706,7 @@ const App = {
                 return (parentA?.relativeY || 0) - (parentB?.relativeY || 0);
             });
 
-            let nextAvailableY = topY > 0 ? topY + this.CONSTANTS.VERTICAL_SPACING : -Infinity;
+            let nextAvailableY = topY > 0 ? topY + this.CONSTANTS.VERTICAL_SPACING : this.CONSTANTS.PASSAGE_PADDING;
 
             parentKeys.forEach(parentKey => {
                 const passages = parentGroups[parentKey];
@@ -750,7 +750,8 @@ const App = {
                     }
                 } else {
                     // Root passages or orphans - stack from top but avoid overlaps
-                    let currentY = Math.max(0, nextAvailableY);
+                    // Ensure minimum padding from top to avoid header overlap
+                    let currentY = Math.max(this.CONSTANTS.PASSAGE_PADDING, nextAvailableY);
                     passages.forEach(passageId => {
                         const passage = this.state.passages.get(passageId);
                         if (passage && !positioned.has(passageId)) {
