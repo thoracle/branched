@@ -14,12 +14,18 @@ const Swimlanes = {
                 if (colors.laneBackground === '#2a2a2a') { // dark mode
                     ctx.fillStyle = isCollapsed ? '#3a2020' : '#402020';
                 }
+            } else if (lane.isMetadata) {
+                // Slightly blue-tinted background for Metadata lane
+                ctx.fillStyle = isCollapsed ? '#e8f0ff' : '#f0f5ff';
+                if (colors.laneBackground === '#2a2a2a') { // dark mode
+                    ctx.fillStyle = isCollapsed ? '#202a3a' : '#202840';
+                }
             } else if (isActive) {
                 ctx.fillStyle = colors.laneBackgroundActive;
             } else if (isCollapsed) {
-                ctx.fillStyle = lane.isMetadata ? colors.laneBackgroundCollapsedMeta : colors.laneBackgroundCollapsed;
+                ctx.fillStyle = colors.laneBackgroundCollapsed;
             } else {
-                ctx.fillStyle = lane.isMetadata ? colors.laneBackgroundMeta : colors.laneBackground;
+                ctx.fillStyle = colors.laneBackground;
             }
             ctx.fillRect(0, currentY, ctx.canvas.width, laneHeight);
 
@@ -35,10 +41,13 @@ const Swimlanes = {
             if (lane.isOrphanage) {
                 // Red background for Orphanage lane (like the Delete button)
                 ctx.fillStyle = '#dc3545';
+            } else if (lane.isMetadata) {
+                // Royal blue background for Metadata lane
+                ctx.fillStyle = '#4169E1';
             } else if (isActive) {
                 ctx.fillStyle = colors.headerBackgroundActive;
             } else {
-                ctx.fillStyle = lane.isMetadata ? colors.headerBackgroundMeta : colors.headerBackground;
+                ctx.fillStyle = colors.headerBackground;
             }
             ctx.fillRect(0, currentY, ctx.canvas.width, constants.HEADER_HEIGHT);
 
