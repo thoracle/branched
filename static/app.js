@@ -1,8 +1,6 @@
 const App = {
     state: {
-        lanes: [
-            { id: 'metadata', name: 'Metadata', isMetadata: true, passages: [], collapsed: false }
-        ],
+        lanes: [], // Start with no lanes until a project is loaded
         passages: new Map(),
         links: [],
         selectedPassage: null,
@@ -84,15 +82,86 @@ const App = {
         this.canvas = document.getElementById('main-canvas');
         this.ctx = this.canvas.getContext('2d');
 
+        // Clear localStorage on startup for fresh start
+        localStorage.removeItem('branched-data');
+        localStorage.removeItem('branchEdState');
+
         this.bindEvents();
-        this.loadFromStorage();
+        // Don't load from storage on startup - start fresh
+        // this.loadFromStorage();
         this.resizeCanvas();
         this.render();
+
+        // Initialize Editor and Search
+        Editor.init(this);
+        Search.init(this);
+    },
+
+    cleanupStorage() {
+        try {
+            // Check both possible keys for backward compatibility
+            let stored = localStorage.getItem('branched-data') || localStorage.getItem('branchEdState');
+            if (stored) {
+                // Try to parse to check if it's valid JSON
+                const data = JSON.parse(stored);
+
+                // Check for corrupt or outdated data structures
+                if (data.passages) {
+                    // Convert old passage format if needed
+                    const validPassages = new Map();
+
+                    if (Array.isArray(data.passages)) {
+                        // Old array format - convert to Map
+                        data.passages.forEach(p => {
+                            if (p && p.id && typeof p.title === 'string') {
+                                // Ensure title doesn't contain content
+                                if (p.title && p.title.includes('\n')) {
+                                    p.title = p.title.split('\n')[0].trim();
+                                }
+                                validPassages.set(p.id, p);
+                            }
+                        });
+                    } else if (data.passages instanceof Object) {
+                        // Map-like object - validate entries
+                        Object.entries(data.passages).forEach(([key, value]) => {
+                            if (value && value[1] && typeof value[1].title === 'string') {
+                                const passage = value[1];
+                                // Ensure title doesn't contain content
+                                if (passage.title && passage.title.includes('\n')) {
+                                    passage.title = passage.title.split('\n')[0].trim();
+                                }
+                                validPassages.set(value[0], passage);
+                            }
+                        });
+                    }
+
+                    // Save cleaned data back
+                    data.passages = Array.from(validPassages.entries());
+                    localStorage.setItem('branched-data', JSON.stringify(data));
+                    // Remove old key if it exists
+                    localStorage.removeItem('branchEdState');
+                }
+            }
+        } catch (error) {
+            console.warn('Corrupt localStorage data detected, clearing...', error);
+            // If data is corrupt, clear it
+            localStorage.removeItem('branchEdState');
+            localStorage.removeItem('theme');
+        }
     },
 
     resizeCanvas() {
         const container = document.getElementById('canvas-container');
-        this.canvas.width = container.clientWidth;
+
+        // Calculate maximum width needed based on passage positions
+        let maxWidth = container.clientWidth;
+        this.state.passages.forEach(passage => {
+            const rightEdge = passage.x + this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_PADDING;
+            maxWidth = Math.max(maxWidth, rightEdge);
+        });
+
+        // Add some extra padding to the right
+        this.canvas.width = Math.max(container.clientWidth, maxWidth + 100);
 
         // Calculate total height based on actual lane heights
         let totalHeight = 0;
@@ -138,9 +207,14 @@ const App = {
     bindEvents() {
         document.getElementById('add-lane-btn').addEventListener('click', () => this.addLane());
         document.getElementById('add-passage-btn').addEventListener('click', () => this.addPassage());
+        document.getElementById('project-selector').addEventListener('change', (e) => this.handleProjectSelection(e));
         document.getElementById('import-btn').addEventListener('click', () => this.importTwee());
         document.getElementById('export-btn').addEventListener('click', () => this.exportTwee());
+        document.getElementById('clear-storage-btn').addEventListener('click', () => this.clearStorage());
         document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
+
+        // Load available projects on init
+        this.loadProjectList();
 
         this.canvas.addEventListener('click', (e) => this.handleCanvasClick(e));
         this.canvas.addEventListener('dblclick', (e) => this.handleCanvasDoubleClick(e));
@@ -151,8 +225,6 @@ const App = {
 
         // Add keyboard event listeners
         document.addEventListener('keydown', (e) => this.handleKeyPress(e));
-
-        Editor.init(this);
     },
 
     handleCanvasClick(event) {
@@ -438,34 +510,6 @@ const App = {
 
         const baseY = laneY + this.CONSTANTS.HEADER_HEIGHT;
 
-        // Debug specific passage
-        const debugTarget = 'ab1a1a1a';
-        let foundDebugPassage = false;
-        lane.passages.forEach(passageId => {
-            const passage = this.state.passages.get(passageId);
-            if (passage && passage.title && passage.title === debugTarget) {  // Exact match only
-                foundDebugPassage = true;
-
-                // Find all incoming links
-                const incomingLinks = this.state.links.filter(l => l.to === passageId);
-                const outgoingLinks = this.state.links.filter(l => l.from === passageId);
-
-                console.log(`Found ${debugTarget} in lane ${lane.name}:`, {
-                    id: passageId,
-                    title: passage.title,
-                    laneId: passage.laneId,
-                    incomingLinks: incomingLinks.map(l => ({
-                        from: this.state.passages.get(l.from)?.title,
-                        fromLane: this.state.lanes.find(ln => ln.id === this.state.passages.get(l.from)?.laneId)?.name
-                    })),
-                    outgoingLinks: outgoingLinks.map(l => ({
-                        to: this.state.passages.get(l.to)?.title,
-                        toLane: this.state.lanes.find(ln => ln.id === this.state.passages.get(l.to)?.laneId)?.name
-                    }))
-                });
-            }
-        });
-
         // Reset all passage positions first
         lane.passages.forEach(passageId => {
             const passage = this.state.passages.get(passageId);
@@ -514,7 +558,11 @@ const App = {
         }
 
         // Now find all descendants of cross-lane roots to exclude them from normal positioning
-        const markDescendants = (rootId, targetSet) => {
+        const markDescendants = (rootId, targetSet, visited = new Set()) => {
+            // Prevent infinite recursion with cycles
+            if (visited.has(rootId)) return;
+            visited.add(rootId);
+
             const children = this.state.links
                 .filter(link => link.from === rootId)
                 .map(link => link.to)
@@ -524,13 +572,15 @@ const App = {
                 });
 
             children.forEach(childId => {
-                targetSet.add(childId);
-                markDescendants(childId, targetSet); // Recursively mark grandchildren
+                if (!targetSet.has(childId)) {
+                    targetSet.add(childId);
+                    markDescendants(childId, targetSet, visited); // Recursively mark grandchildren
+                }
             });
         };
 
-        bottomCrossLaneRoots.forEach(rootId => markDescendants(rootId, bottomCrossLaneDescendants));
-        topCrossLaneRoots.forEach(rootId => markDescendants(rootId, topCrossLaneDescendants));
+        bottomCrossLaneRoots.forEach(rootId => markDescendants(rootId, bottomCrossLaneDescendants, new Set()));
+        topCrossLaneRoots.forEach(rootId => markDescendants(rootId, topCrossLaneDescendants, new Set()));
 
         // Position by depth columns
         let currentX = this.CONSTANTS.PASSAGE_PADDING;
@@ -669,17 +719,6 @@ const App = {
                         const desiredY = parent.relativeY || 0;
                         const actualY = Math.max(desiredY, nextAvailableY);
 
-                        // Debug specific passage
-                        if (passage.title && passage.title === 'ab1a1a1a') {
-                            console.log(`Positioning ${passage.title} as SINGLE CHILD:`, {
-                                parent: parent.title,
-                                desiredY,
-                                actualY,
-                                x: currentX,
-                                depth: depths.get(passages[0])
-                            });
-                        }
-
                         // X position is already set by depth calculation
                         passage.x = currentX;
                         passage.relativeY = actualY;
@@ -700,15 +739,7 @@ const App = {
                         passages.forEach(passageId => {
                             const passage = this.state.passages.get(passageId);
                             if (passage && !positioned.has(passageId)) {
-                                // Debug specific passage
-                                if (passage.title && passage.title === 'ab1a1a1a') {
-                                    console.log(`Positioning ${passage.title} as NORMAL passage (root/orphan):`, {
-                                        x: currentX,
-                                        y: currentY,
-                                        depth: depths.get(passageId)
-                                    });
-                                }
-                                passage.x = currentX;
+                                    passage.x = currentX;
                                 passage.relativeY = currentY;
                                 positioned.add(passageId);
                                 currentY += this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
@@ -723,16 +754,6 @@ const App = {
                     passages.forEach(passageId => {
                         const passage = this.state.passages.get(passageId);
                         if (passage && !positioned.has(passageId)) {
-                            // Debug specific passage
-                            if (passage.title && passage.title === 'ab1a1a1a') {
-                                console.log(`Positioning ${passage.title} as ROOT/ORPHAN:`, {
-                                    parentKey,
-                                    x: currentX,
-                                    y: currentY,
-                                    depth: depths.get(passageId),
-                                    lane: lane.name
-                                });
-                            }
                             passage.x = currentX;
                             passage.relativeY = currentY;
                             positioned.add(passageId);
@@ -802,18 +823,23 @@ const App = {
 
                     // Group children by their depth relative to this node
                     const childrenByDepth = {};
-                    const addToDepthMap = (child, depth) => {
+                    const addToDepthMap = (child, depth, visited = new Set()) => {
+                        // Prevent infinite recursion
+                        const childKey = child.id || JSON.stringify(child);
+                        if (visited.has(childKey)) return;
+                        visited.add(childKey);
+
                         if (!childrenByDepth[depth]) {
                             childrenByDepth[depth] = [];
                         }
                         childrenByDepth[depth].push(child);
 
                         child.children.forEach(grandchild => {
-                            addToDepthMap(grandchild, depth + 1);
+                            addToDepthMap(grandchild, depth + 1, visited);
                         });
                     };
 
-                    node.children.forEach(child => addToDepthMap(child, 1));
+                    node.children.forEach(child => addToDepthMap(child, 1, new Set()));
 
                     // Calculate max height needed at each depth
                     Object.values(childrenByDepth).forEach(nodesAtDepth => {
@@ -864,7 +890,12 @@ const App = {
                     }
 
                     // Now position all descendants
-                    const positionDescendants = (parentId, parentY) => {
+                    const positionDescendants = (parentId, parentY, visitedInChain = new Set()) => {
+                        // Prevent infinite recursion
+                        if (visitedInChain.has(parentId)) return;
+                        const newVisited = new Set(visitedInChain);
+                        newVisited.add(parentId);
+
                         const children = this.state.links
                             .filter(link => link.from === parentId)
                             .map(link => link.to)
@@ -898,17 +929,6 @@ const App = {
                                 }
                                 childY = attemptY;
 
-                                // Debug specific passages
-                                if (child.title && child.title === 'ab1a1a1a') {
-                                    console.log(`Positioning ${child.title}:`, {
-                                        parent: this.state.passages.get(parentId)?.title,
-                                        depth: childDepth,
-                                        x: childX,
-                                        y: childY,
-                                        usedAtDepth: usedYByDepth[childDepth]
-                                    });
-                                }
-
                                 child.x = childX;
                                 child.relativeY = childY;
                                 positioned.add(childId);
@@ -918,7 +938,7 @@ const App = {
                                 const childTreeHeight = calculateTreeHeight(childId);
 
                                 // Recursively position this child's descendants
-                                positionDescendants(childId, childY);
+                                positionDescendants(childId, childY, newVisited);
 
                                 // Move Y for next sibling based on subtree height
                                 childY += Math.max(
@@ -1080,6 +1100,67 @@ const App = {
         this.state.selectedPassage = passage;
     },
 
+    centerOnPassage(passage) {
+        if (!passage) return;
+
+        // Calculate the passage's absolute position on canvas
+        let laneY = 0;
+        for (const lane of this.state.lanes) {
+            if (lane.id === passage.laneId) {
+                break;
+            }
+            laneY += this.calculateLaneHeight(lane);
+        }
+
+        const passageX = passage.x;
+        const passageY = laneY + this.CONSTANTS.HEADER_HEIGHT + passage.y;
+
+        // Get container dimensions
+        const container = document.getElementById('canvas-container');
+        const containerWidth = container.clientWidth;
+        const containerHeight = container.clientHeight;
+
+        // Calculate scroll position to center the passage
+        const scrollX = passageX + this.CONSTANTS.PASSAGE_WIDTH / 2 - containerWidth / 2;
+        const scrollY = passageY + this.CONSTANTS.PASSAGE_HEIGHT / 2 - containerHeight / 2;
+
+        // Scroll the container
+        container.scrollLeft = Math.max(0, scrollX);
+        container.scrollTop = Math.max(0, scrollY);
+    },
+
+    getParentPassage(passageId) {
+        // Find the first parent (could be in same lane or different lane)
+        const parentLink = this.state.links.find(link => link.to === passageId);
+        if (parentLink) {
+            return this.state.passages.get(parentLink.from);
+        }
+        return null;
+    },
+
+    goToParentPassage(passageId) {
+        const parent = this.getParentPassage(passageId);
+        if (parent) {
+            // Close current editor
+            Editor.close();
+
+            // If parent is in a different lane, switch to it
+            if (parent.laneId !== this.state.activeLaneId) {
+                this.selectLane(parent.laneId);
+            }
+
+            // Select and open parent passage
+            this.selectPassage(parent);
+            this.updateAllLanePositions(); // Ensure positions are current
+            this.render();
+            // Use setTimeout to ensure render completes before centering
+            setTimeout(() => {
+                this.centerOnPassage(parent);
+            }, 10);
+            Editor.open(parent);
+        }
+    },
+
     deletePassage(passageId) {
         const passage = this.state.passages.get(passageId);
         if (!passage) return;
@@ -1140,9 +1221,14 @@ const App = {
             }
 
             Object.assign(passage, updates);
-            this.extractLinks();
-            this.autoCreateLinkedPassages(passage);
-            this.updateAllLanePositions();
+
+            // Only do expensive operations if content or title changed (might affect links)
+            if (updates.content !== undefined || updates.title !== undefined) {
+                this.extractLinks();
+                this.autoCreateLinkedPassages(passage);
+                this.updateAllLanePositions();
+            }
+
             this.render();
             this.saveToStorage();
         }
@@ -1267,9 +1353,83 @@ const App = {
         this.ctx.fillStyle = colors.background;
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-        Swimlanes.renderLanes(this.ctx, this.state.lanes, this.CONSTANTS, this.state.activeLaneId, (lane) => this.calculateLaneHeight(lane), colors);
-        Swimlanes.renderPassages(this.ctx, this.state.passages, this.state.selectedPassage, this.CONSTANTS, this.state.lanes, colors, this.state.links);
-        Swimlanes.renderLinks(this.ctx, this.state.passages, this.state.links, this.CONSTANTS, this.state.lanes, colors);
+        // Check if there's any content to display
+        if (this.state.lanes.length === 0 || this.state.passages.size === 0) {
+            // Show welcome message when no project is loaded
+            this.ctx.fillStyle = colors.text;
+            this.ctx.font = '24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+
+            const centerX = this.canvas.width / 2;
+            const centerY = this.canvas.height / 2;
+
+            this.ctx.fillText('Welcome to BranchEd', centerX, centerY - 30);
+
+            this.ctx.font = '16px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+            this.ctx.fillStyle = colors.secondaryText || '#666';
+            this.ctx.fillText('Select a project from the dropdown above to get started', centerX, centerY + 10);
+
+            // Reset text alignment
+            this.ctx.textAlign = 'left';
+            this.ctx.textBaseline = 'alphabetic';
+        } else {
+            // Render normal content
+            Swimlanes.renderLanes(this.ctx, this.state.lanes, this.CONSTANTS, this.state.activeLaneId, (lane) => this.calculateLaneHeight(lane), colors, (lane) => this.getLaneImage(lane));
+            Swimlanes.renderPassages(this.ctx, this.state.passages, this.state.selectedPassage, this.CONSTANTS, this.state.lanes, colors, this.state.links);
+            Swimlanes.renderLinks(this.ctx, this.state.passages, this.state.links, this.CONSTANTS, this.state.lanes, colors);
+        }
+    },
+
+    clearStorage() {
+        const confirmed = confirm('This will clear all local data including passages, lanes, and settings.\n\nAre you sure you want to continue?');
+
+        if (confirmed) {
+            // Clear all localStorage
+            localStorage.clear();
+
+            // Reset to initial state
+            this.state = {
+                lanes: [],
+                passages: new Map(),
+                links: [],
+                activeLaneId: null,
+                selectedPassage: null,
+                darkMode: false
+            };
+
+            // Create default lanes
+            const mainLane = {
+                id: 'main',
+                name: 'Main',
+                passages: [],
+                collapsed: false,
+                y: 0
+            };
+
+            const metadataLane = {
+                id: 'metadata',
+                name: 'Metadata',
+                passages: [],
+                isMetadata: true,
+                collapsed: false,
+                y: 0
+            };
+
+            this.state.lanes = [mainLane, metadataLane];
+            this.state.activeLaneId = mainLane.id;
+
+            // Reset current project config
+            this.currentProjectConfig = {};
+
+            // Update UI
+            this.updateAllLanePositions();
+            this.render();
+            this.saveToStorage();
+
+            // Show notification
+            this.showNotification('All local data cleared successfully');
+        }
     },
 
     toggleTheme() {
@@ -1284,6 +1444,495 @@ const App = {
 
         this.render();
         this.saveToStorage();
+    },
+
+    async loadProjectList() {
+        const selector = document.getElementById('project-selector');
+
+        try {
+            // Fetch games list from server
+            const response = await fetch('/api/games');
+            const games = await response.json();
+
+            // Clear existing options
+            selector.innerHTML = '<option value="">📁 Select Project...</option>';
+
+            if (games.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No projects found';
+                option.disabled = true;
+                selector.appendChild(option);
+                return;
+            }
+
+            // Add project options
+            games.forEach(game => {
+                const option = document.createElement('option');
+                option.value = game.id;
+                option.textContent = `${game.name} (v${game.version})`;
+                selector.appendChild(option);
+            });
+
+        } catch (error) {
+            console.error('Error fetching games:', error);
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'Error loading projects';
+            option.disabled = true;
+            selector.appendChild(option);
+        }
+    },
+
+    handleProjectSelection(event) {
+        const gameId = event.target.value;
+        if (gameId) {
+            this.loadProjectFromServer(gameId);
+            // Reset the dropdown
+            event.target.value = '';
+        }
+    },
+
+    async loadProjectFromServer(gameId) {
+        try {
+            // Fetch game data from server
+            const response = await fetch(`/api/game/${gameId}`);
+            const gameData = await response.json();
+
+            if (!gameData.config) {
+                this.showNotification('No game configuration found', 'error');
+                return;
+            }
+
+            // Store the config
+            this.currentProjectConfig = gameData.config;
+
+            // Set project title
+            if (gameData.config.game_name) {
+                document.title = `BranchEd - ${gameData.config.game_name}`;
+            }
+
+            // Check if story content was loaded
+            if (gameData.storyContent) {
+                // Parse the story content directly
+                this.parseTwee(gameData.storyContent);
+                this.render();
+                this.saveToStorage();
+
+                this.showNotification(`Loaded project: ${gameData.config.game_name}`, 'success');
+                console.log(`Project loaded: ${gameData.config.game_name}`);
+            } else {
+                // Story file not found on server
+                const storyFile = gameData.config.story_settings?.main_story_file;
+                if (!storyFile) {
+                    this.showNotification('No story file specified in game config', 'error');
+                    return;
+                }
+                this.showNotification(`Story file not found: ${storyFile}`, 'error');
+            }
+
+        } catch (error) {
+            console.error('Error loading project:', error);
+            this.showNotification(`Error loading project: ${error.message}`, 'error');
+        }
+    },
+
+    promptForProjectFiles(gameId, config, availableFiles) {
+        const storyFileName = config.story_settings.main_story_file.split('/').pop();
+
+        const message = `Project: ${config.game_name}
+Version: ${config.version}
+
+Now navigate to the games/${gameId}/ folder and select:
+- ${storyFileName} (required)
+${availableFiles.includes('npcs.json') ? '- npcs.json (optional for character images)\n' : ''}
+Use Ctrl/Cmd+click to select multiple files`;
+
+        alert(message);
+
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.multiple = true;
+        fileInput.accept = '.json,.twee,.tw';
+
+        fileInput.onchange = (e) => {
+            const files = Array.from(e.target.files);
+            if (!files.length) return;
+
+            this.loadProjectFiles(config, files, storyFileName);
+        };
+
+        fileInput.click();
+    },
+
+    autoLoadProject(gameConfig, availableFiles) {
+        // Store the config
+        this.currentProjectConfig = gameConfig;
+
+        // Set project title
+        if (gameConfig.game_name) {
+            document.title = `BranchEd - ${gameConfig.game_name}`;
+        }
+
+        console.log(`Loading project: ${gameConfig.game_name}`);
+        console.log(`Available files:`, availableFiles.map(f => f.webkitRelativePath || f.name));
+
+        // Get the story file name from config
+        const storyFile = gameConfig.story_settings?.main_story_file;
+        if (!storyFile) {
+            alert('No story file specified in game config');
+            return;
+        }
+
+        // Find story file in available files
+        const storyFileName = storyFile.split('/').pop();
+        const foundStoryFile = availableFiles.find(f =>
+            f.name === storyFileName ||
+            f.webkitRelativePath?.endsWith(storyFileName)
+        );
+
+        if (!foundStoryFile) {
+            alert(`Story file "${storyFileName}" not found in project directory`);
+            return;
+        }
+
+        // Find data files (we'll load NPCs for lane images)
+        const dataFiles = {
+            npcs: availableFiles.find(f =>
+                f.name === 'npcs.json' ||
+                f.webkitRelativePath?.endsWith('npcs.json')
+            ),
+            // Load other data files if present
+            items: availableFiles.find(f =>
+                f.name === 'items.json' ||
+                f.webkitRelativePath?.endsWith('items.json')
+            ),
+            monsters: availableFiles.find(f =>
+                f.name === 'monsters.json' ||
+                f.webkitRelativePath?.endsWith('monsters.json')
+            ),
+            factions: availableFiles.find(f =>
+                f.name === 'factions.json' ||
+                f.webkitRelativePath?.endsWith('factions.json')
+            )
+        };
+
+        // Load story file first
+        console.log(`Loading story file: ${foundStoryFile.name}`);
+        const storyReader = new FileReader();
+        storyReader.onload = (e) => {
+            this.parseTwee(e.target.result);
+
+            // Load data files
+            this.loadDataFiles(dataFiles, () => {
+                this.render();
+                this.saveToStorage();
+
+                // Show success
+                console.log(`✓ Project loaded: ${gameConfig.game_name}`);
+                console.log(`  Version: ${gameConfig.version}`);
+                console.log(`  Story: ${foundStoryFile.name}`);
+
+                const loadedDataFiles = Object.keys(dataFiles)
+                    .filter(key => dataFiles[key])
+                    .map(key => dataFiles[key].name);
+
+                if (loadedDataFiles.length > 0) {
+                    console.log(`  Data files: ${loadedDataFiles.join(', ')}`);
+                }
+
+                this.showNotification(`Project "${gameConfig.game_name}" loaded successfully`);
+            });
+        };
+        storyReader.readAsText(foundStoryFile);
+    },
+
+    loadProjectFiles(gameConfig, files, expectedStoryFile) {
+        // Find the story file
+        const storyFile = files.find(f =>
+            f.name === expectedStoryFile ||
+            f.name.endsWith('.twee') ||
+            f.name.endsWith('.tw')
+        );
+
+        if (!storyFile) {
+            alert(`Story file "${expectedStoryFile}" not found in selected files.`);
+            return;
+        }
+
+        // Find data files
+        const dataFiles = {
+            items: files.find(f => f.name === 'items.json'),
+            monsters: files.find(f => f.name === 'monsters.json'),
+            npcs: files.find(f => f.name === 'npcs.json'),
+            factions: files.find(f => f.name === 'factions.json')
+        };
+
+        // Load story file first
+        const storyReader = new FileReader();
+        storyReader.onload = (e) => {
+            this.parseTwee(e.target.result);
+
+            // Load data files
+            this.loadDataFiles(dataFiles, () => {
+                this.render();
+                this.saveToStorage();
+
+                // Show success
+                console.log(`✓ Project loaded: ${gameConfig.game_name}`);
+                console.log(`  Version: ${gameConfig.version}`);
+                console.log(`  Story: ${storyFile.name}`);
+
+                const loadedDataFiles = Object.keys(dataFiles)
+                    .filter(key => dataFiles[key])
+                    .map(key => dataFiles[key].name);
+
+                if (loadedDataFiles.length > 0) {
+                    console.log(`  Data files: ${loadedDataFiles.join(', ')}`);
+                }
+
+                this.showNotification(`Project "${gameConfig.game_name}" loaded successfully`);
+            });
+        };
+        storyReader.readAsText(storyFile);
+    },
+
+    loadDataFiles(dataFiles, callback) {
+        // Initialize project data storage
+        if (!this.currentProjectConfig.projectData) {
+            this.currentProjectConfig.projectData = {};
+        }
+
+        let loadCount = 0;
+        const totalFiles = Object.values(dataFiles).filter(f => f).length;
+
+        if (totalFiles === 0) {
+            callback();
+            return;
+        }
+
+        // Load each data file
+        Object.keys(dataFiles).forEach(type => {
+            const file = dataFiles[type];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    this.currentProjectConfig.projectData[type] = data;
+                    console.log(`✓ Loaded ${file.name}`);
+                } catch (error) {
+                    console.error(`✗ Failed to parse ${file.name}:`, error.message);
+                }
+
+                loadCount++;
+                if (loadCount === totalFiles) {
+                    callback();
+                }
+            };
+            reader.readAsText(file);
+        });
+    },
+
+    // Access loaded project data
+    getProjectData(type) {
+        return this.currentProjectConfig?.projectData?.[type] || null;
+    },
+
+    // Get items data if loaded
+    getItems() {
+        const itemsData = this.getProjectData('items');
+        return itemsData?.items || {};
+    },
+
+    // Get monsters data if loaded
+    getMonsters() {
+        const monstersData = this.getProjectData('monsters');
+        return monstersData?.monsters || {};
+    },
+
+    // Get NPCs data if loaded
+    getNPCs() {
+        const npcsData = this.getProjectData('npcs');
+        return npcsData?.npcs || [];
+    },
+
+    // Get factions data if loaded
+    getFactions() {
+        const factionsData = this.getProjectData('factions');
+        return factionsData?.factions || {};
+    },
+
+    // Get NPC image for a lane by matching $lane:{npc_id} to NPC data
+    getLaneImage(lane) {
+        if (!lane || lane.isMetadata || lane.name === 'Main') {
+            return null;
+        }
+
+        const npcs = this.getNPCs();
+        if (!npcs || npcs.length === 0) {
+            return null;
+        }
+
+        // Look for an NPC with ID matching the lane name
+        const npc = npcs.find(n => n.id === lane.name);
+        return npc?.image_url || null;
+    },
+
+    showNotification(message, type = 'success') {
+        // Create a temporary notification
+        const notification = document.createElement('div');
+        notification.textContent = message;
+
+        const backgroundColor = type === 'error' ? '#f44336' : '#4CAF50';
+
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${backgroundColor};
+            color: white;
+            padding: 12px 20px;
+            border-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 10000;
+            animation: slideIn 0.3s ease-out;
+        `;
+
+        document.body.appendChild(notification);
+
+        // Remove after 3 seconds
+        setTimeout(() => {
+            notification.style.animation = 'slideOut 0.3s ease-out';
+            setTimeout(() => notification.remove(), 300);
+        }, 3000);
+    },
+
+    openProjectFallback() {
+        const projectFileInput = document.getElementById('project-file-input');
+        projectFileInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const gameConfig = JSON.parse(e.target.result);
+                    // For fallback, we'll need to prompt for the story file
+                    this.handleProjectConfig(gameConfig);
+                } catch (error) {
+                    alert('Error parsing JSON config file: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        };
+        projectFileInput.click();
+    },
+
+    loadSingleConfigFile(configFile, availableFiles) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const gameConfig = JSON.parse(e.target.result);
+                this.handleProjectConfig(gameConfig);
+            } catch (error) {
+                alert('Error parsing JSON config file: ' + error.message);
+            }
+        };
+        reader.readAsText(configFile);
+    },
+
+    async loadProjectFromConfig(gameConfig, availableFiles) {
+        // Validate that story_settings exists
+        if (!gameConfig.story_settings || !gameConfig.story_settings.main_story_file) {
+            alert('Invalid game config: missing story_settings.main_story_file');
+            return;
+        }
+
+        const mainStoryFileName = gameConfig.story_settings.main_story_file;
+
+        // If availableFiles is an array (from file selection), look for the story file
+        if (Array.isArray(availableFiles) && availableFiles.length > 0) {
+            // Extract just the filename from the path (e.g., "data/world_expanded.twee" -> "world_expanded.twee")
+            const storyFileName = mainStoryFileName.split('/').pop();
+
+            console.log('Looking for story file:', storyFileName, 'from path:', mainStoryFileName);
+            console.log('Available files:', availableFiles.map(f => f.name));
+
+            // Find the story file by matching the filename
+            const storyFile = availableFiles.find(f => {
+                return f.name === storyFileName;
+            });
+
+            if (storyFile) {
+                // Load the story file directly
+                this.currentProjectConfig = gameConfig;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    this.parseTwee(e.target.result);
+
+                    // Set project title if available
+                    if (gameConfig.game_name) {
+                        document.title = `BranchEd - ${gameConfig.game_name}`;
+                    }
+
+                    this.render();
+                    this.saveToStorage();
+
+                    console.log(`Project loaded: ${gameConfig.game_name || 'Unknown'}`);
+                    console.log(`Story file: ${storyFileName}`);
+                };
+                reader.readAsText(storyFile);
+                return;
+            }
+        }
+
+        // Fall back to prompting for file if not found
+        const confirmLoad = confirm(
+            `Found project: ${gameConfig.game_name || 'Unnamed Game'}\n` +
+            `Story file: ${mainStoryFileName}\n\n` +
+            `The story file was not found in the selected folder. Please select it manually.`
+        );
+
+        if (confirmLoad) {
+            this.currentProjectConfig = gameConfig;
+            this.promptForStoryFile(mainStoryFileName.split('/').pop());
+        }
+    },
+
+    promptForStoryFile(expectedFileName) {
+        const fileInput = document.getElementById('file-input');
+        fileInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // Check if the filename matches (case-insensitive)
+            if (file.name.toLowerCase() !== expectedFileName.toLowerCase()) {
+                const proceed = confirm(
+                    `Selected file "${file.name}" doesn't match expected "${expectedFileName}". ` +
+                    `Continue anyway?`
+                );
+                if (!proceed) return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                this.parseTwee(e.target.result);
+
+                // Set project title if available
+                if (this.currentProjectConfig && this.currentProjectConfig.game_name) {
+                    document.title = `BranchEd - ${this.currentProjectConfig.game_name}`;
+                }
+
+                this.render();
+                this.saveToStorage();
+
+                console.log(`Project loaded: ${this.currentProjectConfig?.game_name || 'Unknown'}`);
+            };
+            reader.readAsText(file);
+        };
+        fileInput.click();
     },
 
     importTwee() {
@@ -1309,13 +1958,25 @@ const App = {
             { id: 'metadata', name: 'Metadata', isMetadata: true, passages: [], collapsed: false }
         ];
 
-        const passageRegex = /:: ([^\[]+)(?:\[([^\]]*)\])?\n([\s\S]*?)(?=\n:: |\n*$)/g;
-        let match;
+        // Split content into passages first
+        // Each passage starts with ":: " at the beginning of a line
+        const passageChunks = content.split(/^:: /m).filter(chunk => chunk.trim());
 
-        while ((match = passageRegex.exec(content)) !== null) {
-            const title = match[1].trim();
-            const tagString = match[2] ? match[2].trim() : '';
-            const passageContent = match[3].trim();
+        passageChunks.forEach(chunk => {
+            // Each chunk now starts with the passage name
+            // Format: PassageName [optional tags]\ncontent
+            const lines = chunk.split('\n');
+            const headerLine = lines[0];
+
+            // Parse the header line for name and tags
+            const headerMatch = headerLine.match(/^([^\[\n\r]+?)(?:\s*\[([^\]]*)\])?\s*$/);
+            if (!headerMatch) return; // Skip malformed passages
+
+            const title = headerMatch[1].trim();
+            const tagString = headerMatch[2] ? headerMatch[2].trim() : '';
+
+            // Everything after the first line is content
+            const passageContent = lines.slice(1).join('\n').trim();
 
             // Parse tags - look for $lane: prefix for lane assignment
             const tagArray = tagString.split(/\s+/).filter(t => t);
@@ -1363,9 +2024,10 @@ const App = {
                 relativeY: 0
             };
 
+
             this.state.passages.set(passage.id, passage);
             lane.passages.push(passage.id);
-        }
+        });
 
         this.extractLinks();
 
@@ -1428,8 +2090,17 @@ const App = {
 
         try {
             const data = JSON.parse(stored);
-            this.state.lanes = data.lanes || this.state.lanes;
-            this.state.passages = new Map(data.passages || []);
+
+            // Validate and fix lane data
+            if (data.lanes && Array.isArray(data.lanes)) {
+                this.state.lanes = data.lanes;
+            }
+
+            // Validate and fix passage data
+            if (data.passages && Array.isArray(data.passages)) {
+                this.state.passages = new Map(data.passages);
+            }
+
             this.state.activeLaneId = data.activeLaneId || null;
             this.state.nextPassageId = data.nextPassageId || 1;
             this.state.nextLaneId = data.nextLaneId || 1;
@@ -1437,15 +2108,19 @@ const App = {
 
             // Apply theme
             if (this.state.darkMode) {
+                document.body.classList.add('night-mode');
                 document.body.classList.add('dark-mode');
-                document.getElementById('theme-toggle').textContent = '☀️';
+                const themeBtn = document.getElementById('theme-toggle');
+                if (themeBtn) themeBtn.textContent = '☀️';
             }
 
-            // Rebuild links and recalculate all positions
+            // Rebuild links but DON'T call updateAllLanePositions here to avoid recursion
+            this.state.links = [];
             this.extractLinks();
-            this.updateAllLanePositions();
         } catch (e) {
             console.error('Failed to load data:', e);
+            // Clear corrupt data
+            localStorage.removeItem('branched-data');
         }
     }
 };

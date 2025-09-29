@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Stack Overflow Test</title>
+</head>
+<body>
+    <h2>Testing Stack Overflow Fix</h2>
+    <button id="test-load">Test Load Project</button>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('test-load').addEventListener('click', async () => {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'Loading...';
+
+            try {
+                // Fetch the game data
+                const response = await fetch('http://localhost:8000/api/game/wasted');
+                const gameData = await response.json();
+
+                console.log('Game data received:', {
+                    hasConfig: !!gameData.config,
+                    hasStory: !!gameData.storyContent,
+                    storyLength: gameData.storyContent?.length
+                });
+
+                // Test parsing the Twee content
+                // This simulates what the app does
+                const passages = [];
+                const passageChunks = gameData.storyContent.split(/^:: /m).filter(chunk => chunk.trim());
+
+                passageChunks.forEach(chunk => {
+                    const lines = chunk.split('\n');
+                    const headerLine = lines[0];
+                    const headerMatch = headerLine.match(/^([^\[\n\r]+?)(?:\s*\[([^\]]*)\])?\s*$/);
+                    if (headerMatch) {
+                        passages.push({
+                            title: headerMatch[1].trim(),
+                            tags: headerMatch[2] ? headerMatch[2].trim() : '',
+                            content: lines.slice(1).join('\n').trim()
+                        });
+                    }
+                });
+
+                console.log(`Parsed ${passages.length} passages`);
+
+                // Check for circular references
+                const links = [];
+                passages.forEach((passage, fromIdx) => {
+                    // Simple link extraction
+                    const linkMatches = passage.content.match(/\[\[([^\]]+)\]\]/g) || [];
+                    linkMatches.forEach(match => {
+                        const linkText = match.slice(2, -2);
+                        const targetTitle = linkText.includes('|') ? linkText.split('|')[1] : linkText;
+                        const toIdx = passages.findIndex(p => p.title === targetTitle.trim());
+                        if (toIdx >= 0) {
+                            links.push({ from: fromIdx, to: toIdx });
+                        }
+                    });
+                });
+
+                console.log(`Found ${links.length} links`);
+
+                // Check for cycles
+                const hasCycle = (links) => {
+                    const visited = new Set();
+                    const recStack = new Set();
+
+                    const hasCycleDFS = (node) => {
+                        visited.add(node);
+                        recStack.add(node);
+
+                        const neighbors = links.filter(l => l.from === node).map(l => l.to);
+                        for (const neighbor of neighbors) {
+                            if (!visited.has(neighbor)) {
+                                if (hasCycleDFS(neighbor)) return true;
+                            } else if (recStack.has(neighbor)) {
+                                return true;
+                            }
+                        }
+
+                        recStack.delete(node);
+                        return false;
+                    };
+
+                    for (let i = 0; i < passages.length; i++) {
+                        if (!visited.has(i)) {
+                            if (hasCycleDFS(i)) return true;
+                        }
+                    }
+                    return false;
+                };
+
+                const cycleDetected = hasCycle(links);
+
+                resultDiv.innerHTML = `
+                    <h3>✅ Test Complete</h3>
+                    <p>Passages parsed: ${passages.length}</p>
+                    <p>Links found: ${links.length}</p>
+                    <p>Circular references: ${cycleDetected ? 'YES (this might cause issues)' : 'NO'}</p>
+                    <p>Check browser console for details</p>
+                `;
+
+                if (!cycleDetected) {
+                    console.log('✅ No circular references detected - safe to load');
+                } else {
+                    console.log('⚠️ Circular references detected - but should be handled by the fixed code');
+                }
+
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+                console.error('Test failed:', error);
+            }
+        });
+    </script>
+</body>
+</html>

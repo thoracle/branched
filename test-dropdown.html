@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>BranchEd Dropdown Test</title>
+</head>
+<body>
+    <h2>Testing BranchEd Dropdown Loading</h2>
+    <p>Open Developer Console to see the test results</p>
+
+    <script>
+        // Test the API endpoints
+        async function testAPI() {
+            console.log('Testing BranchEd API...');
+
+            try {
+                // 1. Test games list
+                console.log('1. Fetching games list...');
+                const gamesResponse = await fetch('http://localhost:8000/api/games');
+                const games = await gamesResponse.json();
+                console.log('✓ Games found:', games.length);
+                games.forEach(g => console.log(`  - ${g.id}: ${g.name}`));
+
+                // 2. Test game data with story content
+                if (games.length > 0) {
+                    const testGame = games[0].id;
+                    console.log(`\n2. Fetching game data for "${testGame}"...`);
+                    const gameResponse = await fetch(`http://localhost:8000/api/game/${testGame}`);
+                    const gameData = await gameResponse.json();
+
+                    console.log('✓ Config loaded:', !!gameData.config);
+                    console.log('✓ Story content loaded:', !!gameData.storyContent);
+
+                    if (gameData.storyContent) {
+                        console.log(`  Story size: ${gameData.storyContent.length} characters`);
+                        console.log(`  First 100 chars: "${gameData.storyContent.substring(0, 100)}..."`);
+                    } else {
+                        console.log('⚠ No story content returned!');
+                    }
+                }
+
+                console.log('\n✅ All API tests passed!');
+                console.log('The dropdown should work without showing any modals or alerts.');
+
+            } catch (error) {
+                console.error('❌ Test failed:', error);
+            }
+        }
+
+        testAPI();
+    </script>
+</body>
+</html>

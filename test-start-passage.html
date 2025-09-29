@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Start Passage</title>
+</head>
+<body>
+    <h2>Testing Start Passage Content</h2>
+    <button id="test-btn">Test Start Passage</button>
+    <pre id="result"></pre>
+
+    <script>
+        document.getElementById('test-btn').addEventListener('click', async () => {
+            const resultEl = document.getElementById('result');
+            resultEl.textContent = 'Loading...';
+
+            try {
+                // Fetch Trekers data
+                const response = await fetch('http://localhost:8000/api/game/trekers');
+                const gameData = await response.json();
+
+                // Parse just the Start passage
+                const startPassageMatch = gameData.storyContent.match(/^:: Start\n([\s\S]*?)(?=^:: |\z)/m);
+
+                if (startPassageMatch) {
+                    const startContent = startPassageMatch[1];
+                    resultEl.textContent = `Start Passage Content:\n`;
+                    resultEl.textContent += `=====================\n`;
+                    resultEl.textContent += `Raw content: "${startContent}"\n`;
+                    resultEl.textContent += `Length: ${startContent.length}\n`;
+                    resultEl.textContent += `Trimmed: "${startContent.trim()}"\n\n`;
+
+                    // Test link regex
+                    const linkRegex = /\[\[([^\]]+)\]\]/g;
+                    const links = [];
+                    let match;
+                    while ((match = linkRegex.exec(startContent)) !== null) {
+                        links.push(match[0]);
+                    }
+                    resultEl.textContent += `Links found: ${links.length}\n`;
+                    links.forEach(link => resultEl.textContent += `  - ${link}\n`);
+                } else {
+                    resultEl.textContent = 'Start passage not found!';
+                }
+
+                // Now test the actual parsing
+                const passageChunks = gameData.storyContent.split(/^:: /m).filter(chunk => chunk.trim());
+                const startChunk = passageChunks.find(chunk => chunk.startsWith('Start'));
+
+                if (startChunk) {
+                    resultEl.textContent += `\n\nActual Parsed Chunk:\n`;
+                    resultEl.textContent += `====================\n`;
+
+                    const lines = startChunk.split('\n');
+                    const headerLine = lines[0];
+                    const content = lines.slice(1).join('\n').trim();
+
+                    resultEl.textContent += `Header: "${headerLine}"\n`;
+                    resultEl.textContent += `Content: "${content}"\n`;
+                    resultEl.textContent += `Content length: ${content.length}\n`;
+
+                    // Test links in parsed content
+                    const parsedLinks = [];
+                    const linkRegex2 = /\[\[([^\]]+)\]\]/g;
+                    let match2;
+                    while ((match2 = linkRegex2.exec(content)) !== null) {
+                        parsedLinks.push(match2[0]);
+                    }
+                    resultEl.textContent += `Links in parsed content: ${parsedLinks.length}\n`;
+                    parsedLinks.forEach(link => resultEl.textContent += `  - ${link}\n`);
+                }
+
+            } catch (error) {
+                resultEl.textContent = `Error: ${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html>

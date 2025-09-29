@@ -1,5 +1,5 @@
 const Swimlanes = {
-    renderLanes(ctx, lanes, constants, activeLaneId, getLaneHeight, colors) {
+    renderLanes(ctx, lanes, constants, activeLaneId, getLaneHeight, colors, getLaneImage) {
         let currentY = 0;
 
         lanes.forEach((lane, index) => {
@@ -59,12 +59,65 @@ const Swimlanes = {
             ctx.fillStyle = colors.headerText;
             ctx.fill();
 
-            // Draw lane name (offset to make room for toggle)
+            // Draw NPC image if available
+            let textStartX = 35;
+            if (getLaneImage && !lane.isMetadata && lane.name !== 'Main') {
+                const imageUrl = getLaneImage(lane);
+                if (imageUrl) {
+                    const img = new Image();
+                    img.onload = () => {
+                        // Draw image when it loads (async)
+                        const imageSize = constants.HEADER_HEIGHT - 4;
+                        const imageX = textStartX;
+                        const imageY = currentY + 2;
+
+                        ctx.save();
+                        // Create circular clip
+                        ctx.beginPath();
+                        ctx.arc(imageX + imageSize/2, imageY + imageSize/2, imageSize/2, 0, 2 * Math.PI);
+                        ctx.clip();
+
+                        // Draw image
+                        ctx.drawImage(img, imageX, imageY, imageSize, imageSize);
+                        ctx.restore();
+
+                        // Draw border around image
+                        ctx.strokeStyle = colors.headerText;
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.arc(imageX + imageSize/2, imageY + imageSize/2, imageSize/2, 0, 2 * Math.PI);
+                        ctx.stroke();
+                    };
+                    img.onerror = () => {
+                        // Image failed to load, draw placeholder
+                        const imageSize = constants.HEADER_HEIGHT - 4;
+                        const imageX = textStartX;
+                        const imageY = currentY + 2;
+
+                        ctx.strokeStyle = colors.headerText;
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.arc(imageX + imageSize/2, imageY + imageSize/2, imageSize/2, 0, 2 * Math.PI);
+                        ctx.stroke();
+
+                        // Draw "?" in center
+                        ctx.fillStyle = colors.headerText;
+                        ctx.font = '12px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText('?', imageX + imageSize/2, imageY + imageSize/2);
+                    };
+                    img.src = imageUrl;
+                    textStartX += constants.HEADER_HEIGHT + 5; // Make room for image
+                }
+            }
+
+            // Draw lane name (offset to make room for toggle and image)
             ctx.fillStyle = colors.headerText;
             ctx.font = '14px sans-serif';
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
-            ctx.fillText(lane.name, 35, currentY + constants.HEADER_HEIGHT / 2);
+            ctx.fillText(lane.name, textStartX, currentY + constants.HEADER_HEIGHT / 2);
 
             // Show passage count if collapsed
             if (isCollapsed && lane.passages && lane.passages.length > 0) {

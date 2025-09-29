@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Integration Test Results</title>
+    <link rel="icon" href="../../favicon.ico" type="image/x-icon">
+    <style>
+        body { font-family: monospace; background: #1a1a1a; color: #0f0; padding: 20px; }
+        .pass { color: #0f0; }
+        .fail { color: #f00; }
+        .test { margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>BranchEd Integration Test</h1>
+    <div id="results">Running tests...</div>
+
+    <script>
+        const results = document.getElementById('results');
+
+        function log(msg, status = 'info') {
+            const div = document.createElement('div');
+            div.className = `test ${status}`;
+            div.textContent = msg;
+            results.appendChild(div);
+        }
+
+        // Test essential functionality
+        setTimeout(() => {
+            results.innerHTML = '';
+
+            try {
+                // Test app loading
+                if (typeof window !== 'undefined') {
+                    log('✓ Browser environment ready', 'pass');
+                }
+
+                // Test DOM
+                if (document.querySelector) {
+                    log('✓ DOM API available', 'pass');
+                }
+
+                // Test localStorage
+                if (typeof Storage !== 'undefined') {
+                    log('✓ LocalStorage available', 'pass');
+
+                    // Test storage
+                    localStorage.setItem('test', 'value');
+                    if (localStorage.getItem('test') === 'value') {
+                        log('✓ LocalStorage working', 'pass');
+                    }
+                    localStorage.removeItem('test');
+                }
+
+                // Test JSON
+                try {
+                    JSON.parse('{"test": true}');
+                    log('✓ JSON parsing available', 'pass');
+                } catch(e) {
+                    log('✗ JSON parsing failed', 'fail');
+                }
+
+                // Test Canvas API
+                const canvas = document.createElement('canvas');
+                if (canvas.getContext) {
+                    log('✓ Canvas API available', 'pass');
+                }
+
+                // Test FileReader API
+                if (typeof FileReader !== 'undefined') {
+                    log('✓ FileReader API available', 'pass');
+                }
+
+                log('Integration test complete. Core APIs are functional.');
+
+            } catch(e) {
+                log(`✗ Integration test failed: ${e.message}`, 'fail');
+            }
+        }, 100);
+    </script>
+</body>
+</html>

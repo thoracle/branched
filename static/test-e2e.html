@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BranchEd E2E Tests</title>
+    <link rel="icon" href="../../favicon.ico" type="image/x-icon">
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #0f0;
+        }
+        .test-suite {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #0f0;
+        }
+        .test-result {
+            margin: 10px 0;
+            padding: 5px;
+        }
+        .pass {
+            color: #0f0;
+        }
+        .fail {
+            color: #f00;
+        }
+        .info {
+            color: #ff0;
+        }
+        button {
+            background: #333;
+            color: #0f0;
+            border: 1px solid #0f0;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #555;
+        }
+        #test-frame {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #0f0;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>BranchEd E2E Test Suite</h1>
+
+    <div class="test-suite">
+        <h2>Test Controls</h2>
+        <button onclick="runAllTests()">Run All Tests</button>
+        <button onclick="clearResults()">Clear Results</button>
+        <button onclick="openApp()">Open App in Frame</button>
+    </div>
+
+    <div class="test-suite">
+        <h2>Test Results</h2>
+        <div id="test-results"></div>
+    </div>
+
+    <iframe id="test-frame" src="index.html" style="display:none;"></iframe>
+
+    <script>
+        const testResults = document.getElementById('test-results');
+        let app;
+        let passCount = 0;
+        let failCount = 0;
+
+        function log(message, type = 'info') {
+            const result = document.createElement('div');
+            result.className = `test-result ${type}`;
+            result.textContent = `[${type.toUpperCase()}] ${message}`;
+            testResults.appendChild(result);
+            console.log(`[${type}] ${message}`);
+        }
+
+        function clearResults() {
+            testResults.innerHTML = '';
+            passCount = 0;
+            failCount = 0;
+        }
+
+        function openApp() {
+            const frame = document.getElementById('test-frame');
+            frame.style.display = 'block';
+            frame.src = 'index.html';
+        }
+
+        async function waitForApp() {
+            return new Promise((resolve) => {
+                const frame = document.getElementById('test-frame');
+                frame.onload = () => {
+                    setTimeout(() => {
+                        app = frame.contentWindow.App;
+                        resolve();
+                    }, 1000);
+                };
+                frame.src = 'index.html';
+            });
+        }
+
+        async function runAllTests() {
+            clearResults();
+            log('Starting E2E Test Suite...');
+
+            // Load the app
+            log('Loading application...');
+            await waitForApp();
+
+            if (!app) {
+                log('Failed to load app!', 'fail');
+                return;
+            }
+            log('App loaded successfully', 'pass');
+            passCount++;
+
+            // Run test suites
+            await testInitialState();
+            await testLanes();
+            await testPassages();
+            await testTweeImport();
+            await testOrphanDetection();
+            await testSearchFeature();
+            await testParentNavigation();
+            await testThemeToggle();
+
+            // Summary
+            log('═══════════════════════════════════');
+            log(`Test Suite Complete!`);
+            log(`Passed: ${passCount}`, 'pass');
+            log(`Failed: ${failCount}`, 'fail');
+
+            if (failCount === 0) {
+                log('All tests passed! ✓', 'pass');
+            } else {
+                log(`${failCount} tests failed!`, 'fail');
+            }
+        }
+
+        async function testInitialState() {
+            log('──────────────────────────────────');
+            log('Testing Initial State...');
+
+            try {
+                // Test initial lanes
+                if (app.state.lanes.length === 2) {
+                    log('✓ Initial lanes created (Main + Metadata)', 'pass');
+                    passCount++;
+                } else {
+                    log(`✗ Expected 2 lanes, got ${app.state.lanes.length}`, 'fail');
+                    failCount++;
+                }
+
+                // Test canvas
+                if (app.canvas && app.ctx) {
+                    log('✓ Canvas initialized', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ Canvas not initialized', 'fail');
+                    failCount++;
+                }
+
+                // Test localStorage
+                if (typeof Storage !== 'undefined') {
+                    log('✓ LocalStorage available', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ LocalStorage not available', 'fail');
+                    failCount++;
+                }
+
+            } catch (e) {
+                log(`Error in initial state test: ${e.message}`, 'fail');
+                failCount++;
+            }
+        }
+
+        async function testLanes() {
+            log('──────────────────────────────────');
+            log('Testing Lane Management...');
+
+            try {
+                const initialCount = app.state.lanes.length;
+
+                // Add a lane
+                app.addLane();
+                if (app.state.lanes.length === initialCount + 1) {
+                    log('✓ Lane added successfully', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ Failed to add lane', 'fail');
+                    failCount++;
+                }
+
+                // Test lane selection
+                const newLane = app.state.lanes[app.state.lanes.length - 1];
+                app.selectLane(newLane.id);
+                if (app.state.activeLaneId === newLane.id) {
+                    log('✓ Lane selection works', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ Lane selection failed', 'fail');
+                    failCount++;
+                }
+
+            } catch (e) {
+                log(`Error in lane test: ${e.message}`, 'fail');
+                failCount++;
+            }
+        }
+
+        async function testPassages() {
+            log('──────────────────────────────────');
+            log('Testing Passage Management...');
+
+            try {
+                const initialCount = app.state.passages.size;
+
+                // Add a passage
+                app.addPassage();
+                if (app.state.passages.size === initialCount + 1) {
+                    log('✓ Passage added successfully', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ Failed to add passage', 'fail');
+                    failCount++;
+                }
+
+                // Get the new passage
+                const passages = Array.from(app.state.passages.values());
+                const newPassage = passages[passages.length - 1];
+
+                // Test passage update
+                app.updatePassage(newPassage.id, {
+                    title: 'Test Passage',
+                    content: 'Test content'
+                });
+
+                const updated = app.state.passages.get(newPassage.id);
+                if (updated.title === 'Test Passage' && updated.content === 'Test content') {
+                    log('✓ Passage update works', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ Passage update failed', 'fail');
+                    failCount++;
+                }
+
+            } catch (e) {
+                log(`Error in passage test: ${e.message}`, 'fail');
+                failCount++;
+            }
+        }
+
+        async function testTweeImport() {
+            log('──────────────────────────────────');
+            log('Testing Twee Import...');
+
+            try {
+                // Clear existing passages
+                app.state.passages.clear();
+
+                // Test Twee parsing
+                const testTwee = `:: Start
+This is the start passage.
+
+[[Go to Room1]]
+[[Go to Room2]]
+
+:: Room1 [tag1 tag2]
+You are in room 1.
+
+[[Back to Start|Start]]
+
+:: Room2 [$lane:Anna]
+You are in room 2.
+
+[[Back to Start|Start]]`;
+
+                app.parseTwee(testTwee);
+
+                // Check passages were created
+                if (app.state.passages.size === 3) {
+                    log('✓ Twee passages parsed correctly', 'pass');
+                    passCount++;
+                } else {
+                    log(`✗ Expected 3 passages, got ${app.state.passages.size}`, 'fail');
+                    failCount++;
+                }
+
+                // Check passage names
+                const passages = Array.from(app.state.passages.values());
+                const start = passages.find(p => p.title === 'Start');
+                const room1 = passages.find(p => p.title === 'Room1');
+
+                if (start && room1) {
+                    log('✓ Passage names parsed correctly', 'pass');
+                    passCount++;
+
+                    // Check content doesn't leak into title
+                    if (!start.title.includes('This is the start')) {
+                        log('✓ Passage content separated from title', 'pass');
+                        passCount++;
+                    } else {
+                        log('✗ Passage content leaked into title', 'fail');
+                        failCount++;
+                    }
+                } else {
+                    log('✗ Passage names not parsed correctly', 'fail');
+                    failCount++;
+                }
+
+                // Check tags
+                if (room1 && room1.tags && room1.tags.includes('tag1')) {
+                    log('✓ Tags parsed correctly', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ Tags not parsed correctly', 'fail');
+                    failCount++;
+                }
+
+                // Check lane assignment
+                const room2 = passages.find(p => p.title === 'Room2');
+                const annaLane = app.state.lanes.find(l => l.name === 'Anna');
+                if (room2 && annaLane && room2.laneId === annaLane.id) {
+                    log('✓ Lane tags parsed correctly', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ Lane tags not parsed correctly', 'fail');
+                    failCount++;
+                }
+
+            } catch (e) {
+                log(`Error in Twee import test: ${e.message}`, 'fail');
+                failCount++;
+            }
+        }
+
+        async function testOrphanDetection() {
+            log('──────────────────────────────────');
+            log('Testing Orphan Detection...');
+
+            try {
+                // Create an orphan passage
+                const orphanId = 'orphan-' + Date.now();
+                app.state.passages.set(orphanId, {
+                    id: orphanId,
+                    title: 'Orphan Test',
+                    content: 'No links in or out',
+                    laneId: app.state.lanes[0].id,
+                    x: 100,
+                    y: 100
+                });
+
+                // Check if orphan detection works
+                const links = app.extractLinks();
+                const hasIncoming = links.some(l => l.to === orphanId);
+                const hasOutgoing = links.some(l => l.from === orphanId);
+
+                if (!hasIncoming && !hasOutgoing) {
+                    log('✓ Orphan passage correctly identified', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ Orphan detection failed', 'fail');
+                    failCount++;
+                }
+
+                // Clean up
+                app.state.passages.delete(orphanId);
+
+            } catch (e) {
+                log(`Error in orphan detection test: ${e.message}`, 'fail');
+                failCount++;
+            }
+        }
+
+        async function testSearchFeature() {
+            log('──────────────────────────────────');
+            log('Testing Search Feature...');
+
+            try {
+                // Ensure we have test passages
+                if (app.state.passages.size === 0) {
+                    app.parseTwee(`:: TestPassage [testtag]
+Test content for search.`);
+                }
+
+                // Check if Search object exists
+                if (typeof Search !== 'undefined') {
+                    log('✓ Search module loaded', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ Search module not found', 'fail');
+                    failCount++;
+                    return;
+                }
+
+                // Initialize search
+                Search.init(app);
+
+                // Test search functionality
+                Search.performSearch('Test');
+                if (Search.currentResults.length > 0) {
+                    log('✓ Search returns results', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ Search returned no results', 'fail');
+                    failCount++;
+                }
+
+                // Test empty search
+                Search.performSearch('');
+                if (Search.currentResults.length === app.state.passages.size) {
+                    log('✓ Empty search shows all passages', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ Empty search failed', 'fail');
+                    failCount++;
+                }
+
+            } catch (e) {
+                log(`Error in search test: ${e.message}`, 'fail');
+                failCount++;
+            }
+        }
+
+        async function testParentNavigation() {
+            log('──────────────────────────────────');
+            log('Testing Parent Navigation...');
+
+            try {
+                // Create linked passages
+                app.state.passages.clear();
+                app.parseTwee(`:: Parent
+[[Go to Child|Child]]
+
+:: Child
+Back to parent.`);
+
+                const parent = Array.from(app.state.passages.values()).find(p => p.title === 'Parent');
+                const child = Array.from(app.state.passages.values()).find(p => p.title === 'Child');
+
+                if (parent && child) {
+                    // Test parent detection
+                    const foundParent = app.getParentPassage(child.id);
+                    if (foundParent && foundParent.id === parent.id) {
+                        log('✓ Parent passage detected correctly', 'pass');
+                        passCount++;
+                    } else {
+                        log('✗ Parent detection failed', 'fail');
+                        failCount++;
+                    }
+                } else {
+                    log('✗ Failed to create test passages', 'fail');
+                    failCount++;
+                }
+
+            } catch (e) {
+                log(`Error in parent navigation test: ${e.message}`, 'fail');
+                failCount++;
+            }
+        }
+
+        async function testThemeToggle() {
+            log('──────────────────────────────────');
+            log('Testing Theme Toggle...');
+
+            try {
+                const body = app.canvas.ownerDocument.body;
+                const initialTheme = body.classList.contains('night-mode');
+
+                // Toggle theme
+                app.toggleTheme();
+                const afterToggle = body.classList.contains('night-mode');
+
+                if (initialTheme !== afterToggle) {
+                    log('✓ Theme toggle works', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ Theme toggle failed', 'fail');
+                    failCount++;
+                }
+
+                // Check localStorage
+                const savedTheme = localStorage.getItem('theme');
+                if (savedTheme === 'night' || savedTheme === 'day') {
+                    log('✓ Theme preference saved', 'pass');
+                    passCount++;
+                } else {
+                    log('✗ Theme preference not saved', 'fail');
+                    failCount++;
+                }
+
+            } catch (e) {
+                log(`Error in theme toggle test: ${e.message}`, 'fail');
+                failCount++;
+            }
+        }
+    </script>
+</body>
+</html>
