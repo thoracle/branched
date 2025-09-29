@@ -234,6 +234,9 @@ const Editor = {
         // Check if content changed
         if (content !== this.currentPassage.content) {
             updates.content = content;
+
+            // If content changed, we need to re-extract links to update LOOP passages
+            // This will be handled after the passage update
         }
 
         // Check if lane changed

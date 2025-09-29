@@ -3,6 +3,8 @@ const App = {
         lanes: [], // Start with no lanes until a project is loaded
         passages: new Map(),
         links: [],
+        loopPassages: new Map(), // Special LOOP passages for backward links
+        jumpPassages: new Map(), // Special JUMP passages for cross-lane links
         selectedPassage: null,
         activeLaneId: null,
         nextPassageId: 1,
@@ -72,6 +74,8 @@ const App = {
         COLLAPSED_LANE_HEIGHT: 40,
         PASSAGE_WIDTH: 150,
         PASSAGE_HEIGHT: 100,
+        STICKY_WIDTH: 90,  // 60% of PASSAGE_WIDTH
+        STICKY_HEIGHT: 70, // 70% of PASSAGE_HEIGHT
         PASSAGE_SPACING: 20,
         PASSAGE_PADDING: 10,
         VERTICAL_SPACING: 15,
@@ -80,6 +84,7 @@ const App = {
     },
 
     init() {
+        console.log('BranchEd v1.0.6 - Spacing: PASSAGE_SPACING * 8');
         this.canvas = document.getElementById('main-canvas');
         this.ctx = this.canvas.getContext('2d');
 
@@ -167,6 +172,21 @@ const App = {
             maxWidth = Math.max(maxWidth, rightEdge);
         });
 
+        // Also account for LOOP and JUMP passages (sticky notes)
+        if (this.state.loopPassages) {
+            this.state.loopPassages.forEach(loopPassage => {
+                const loopRightEdge = loopPassage.x + this.CONSTANTS.STICKY_WIDTH + this.CONSTANTS.PASSAGE_PADDING;
+                maxWidth = Math.max(maxWidth, loopRightEdge);
+            });
+        }
+
+        if (this.state.jumpPassages) {
+            this.state.jumpPassages.forEach(jumpPassage => {
+                const jumpRightEdge = jumpPassage.x + this.CONSTANTS.STICKY_WIDTH + this.CONSTANTS.PASSAGE_PADDING;
+                maxWidth = Math.max(maxWidth, jumpRightEdge);
+            });
+        }
+
         // Add some extra padding to the right
         this.canvas.width = Math.max(container.clientWidth, maxWidth + 100);
 
@@ -226,6 +246,7 @@ const App = {
 
         this.canvas.addEventListener('click', (e) => this.handleCanvasClick(e));
         this.canvas.addEventListener('dblclick', (e) => this.handleCanvasDoubleClick(e));
+        this.canvas.addEventListener('mousemove', (e) => this.handleCanvasMouseMove(e));
         window.addEventListener('resize', () => {
             this.resizeCanvas();
             this.render();
@@ -289,10 +310,48 @@ const App = {
         this.saveToStorage();
     },
 
+    handleCanvasMouseMove(event) {
+        const rect = this.canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+
+        // Check if hovering over a sticky note
+        const hoveredSticky = this.getStickyAtPosition(x, y);
+        if (hoveredSticky) {
+            this.canvas.style.cursor = 'pointer';
+        } else {
+            // Check if hovering over a passage
+            const hoveredPassage = this.getPassageAtPosition(x, y);
+            this.canvas.style.cursor = hoveredPassage ? 'pointer' : 'default';
+        }
+    },
+
     handleCanvasDoubleClick(event) {
         const rect = this.canvas.getBoundingClientRect();
         const x = event.clientX - rect.left;
         const y = event.clientY - rect.top;
+
+        // Check if double-clicked on a sticky note (LOOP or JUMP)
+        const clickedSticky = this.getStickyAtPosition(x, y);
+        if (clickedSticky) {
+            // Navigate to the target passage
+            const targetPassage = this.state.passages.get(clickedSticky.toId);
+            if (targetPassage) {
+                // If target is in a different lane, switch to it
+                if (targetPassage.laneId !== this.state.activeLaneId) {
+                    this.selectLane(targetPassage.laneId);
+                }
+
+                // Select and center on target passage
+                this.selectPassage(targetPassage);
+                this.updateAllLanePositions();
+                this.render();
+                setTimeout(() => {
+                    this.centerOnPassage(targetPassage.id);
+                }, 0);
+            }
+            return;
+        }
 
         // Check if double-clicked on a passage
         const clickedPassage = this.getPassageAtPosition(x, y);
@@ -319,6 +378,44 @@ const App = {
                 return passage;
             }
         }
+        return null;
+    },
+
+    getStickyAtPosition(x, y) {
+        // Check LOOP passages
+        if (this.state.loopPassages) {
+            for (const loopPassage of this.state.loopPassages.values()) {
+                // Check if the loop's lane is collapsed
+                const lane = this.state.lanes.find(l => l.id === loopPassage.laneId);
+                if (lane && lane.collapsed) continue;
+
+                // Skip if not positioned
+                if (loopPassage.x === 0 && loopPassage.y === 0) continue;
+
+                if (x >= loopPassage.x && x <= loopPassage.x + this.CONSTANTS.STICKY_WIDTH &&
+                    y >= loopPassage.y && y <= loopPassage.y + this.CONSTANTS.STICKY_HEIGHT) {
+                    return loopPassage;
+                }
+            }
+        }
+
+        // Check JUMP passages (only if cross-lane links are hidden)
+        if (this.state.jumpPassages && !this.state.showCrossLaneLinks) {
+            for (const jumpPassage of this.state.jumpPassages.values()) {
+                // Check if the jump's lane is collapsed
+                const lane = this.state.lanes.find(l => l.id === jumpPassage.laneId);
+                if (lane && lane.collapsed) continue;
+
+                // Skip if not positioned
+                if (jumpPassage.x === 0 && jumpPassage.y === 0) continue;
+
+                if (x >= jumpPassage.x && x <= jumpPassage.x + this.CONSTANTS.STICKY_WIDTH &&
+                    y >= jumpPassage.y && y <= jumpPassage.y + this.CONSTANTS.STICKY_HEIGHT) {
+                    return jumpPassage;
+                }
+            }
+        }
+
         return null;
     },
 
@@ -546,20 +643,23 @@ const App = {
         const bottomCrossLaneDescendants = new Set();
         const topCrossLaneDescendants = new Set();
 
-        // Mark passages that have cross-lane parents from below/above
-        for (const [passageId, depth] of depths.entries()) {
-            const crossLaneParents = this.findCrossLaneParents(passageId, lane);
-            if (crossLaneParents.length > 0) {
-                const parent = this.state.passages.get(crossLaneParents[0]);
-                if (parent) {
-                    const parentLaneIndex = this.state.lanes.findIndex(l => l.id === parent.laneId);
-                    const currentLaneIndex = this.state.lanes.findIndex(l => l.id === lane.id);
-                    if (parentLaneIndex > currentLaneIndex) {
-                        // Parent is below - mark as bottom root
-                        bottomCrossLaneRoots.add(passageId);
-                    } else if (parentLaneIndex < currentLaneIndex) {
-                        // Parent is above - mark as top root
-                        topCrossLaneRoots.add(passageId);
+        // Only consider cross-lane relationships if the toggle is ON
+        if (this.state.showCrossLaneLinks) {
+            // Mark passages that have cross-lane parents from below/above
+            for (const [passageId, depth] of depths.entries()) {
+                const crossLaneParents = this.findCrossLaneParents(passageId, lane);
+                if (crossLaneParents.length > 0) {
+                    const parent = this.state.passages.get(crossLaneParents[0]);
+                    if (parent) {
+                        const parentLaneIndex = this.state.lanes.findIndex(l => l.id === parent.laneId);
+                        const currentLaneIndex = this.state.lanes.findIndex(l => l.id === lane.id);
+                        if (parentLaneIndex > currentLaneIndex) {
+                            // Parent is below - mark as bottom root
+                            bottomCrossLaneRoots.add(passageId);
+                        } else if (parentLaneIndex < currentLaneIndex) {
+                            // Parent is above - mark as top root
+                            topCrossLaneRoots.add(passageId);
+                        }
                     }
                 }
             }
@@ -591,7 +691,6 @@ const App = {
         topCrossLaneRoots.forEach(rootId => markDescendants(rootId, topCrossLaneDescendants, new Set()));
 
         // Position by depth columns
-        let currentX = this.CONSTANTS.PASSAGE_PADDING;
         const sortedDepths = Object.keys(depthGroups).sort((a, b) => a - b);
 
         // First position top cross-lane root passages
@@ -636,7 +735,7 @@ const App = {
             sortedGroups.forEach(groupKey => {
                 const group = topGroups[groupKey];
                 const depthX = this.CONSTANTS.PASSAGE_PADDING +
-                              (group.depth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
+                              (group.depth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 8));
 
                 // For each passage in the group, check if it has children
                 group.passages.forEach((passageId, index) => {
@@ -675,6 +774,11 @@ const App = {
 
         // Then position normal passages (excluding cross-lane passages and their descendants)
         sortedDepths.forEach(depth => {
+            // Calculate X position for this depth
+            const currentX = this.CONSTANTS.PASSAGE_PADDING +
+                           (depth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 8));
+            console.log(`Depth ${depth}: X position = ${currentX} (spacing = ${this.CONSTANTS.PASSAGE_SPACING * 8})`);
+
             // Exclude cross-lane roots AND their descendants
             const passagesAtDepth = depthGroups[depth].filter(id =>
                 !bottomCrossLaneRoots.has(id) && !topCrossLaneRoots.has(id) &&
@@ -688,8 +792,8 @@ const App = {
                 // Find parents in this lane first
                 let parents = this.findParentsInLane(passageId, lane);
 
-                // If no parents in this lane, check for cross-lane parents
-                if (parents.length === 0) {
+                // If no parents in this lane, check for cross-lane parents (only if toggle is ON)
+                if (parents.length === 0 && this.state.showCrossLaneLinks) {
                     parents = this.findCrossLaneParents(passageId, lane);
                 }
 
@@ -716,49 +820,35 @@ const App = {
 
             let nextAvailableY = topY > 0 ? topY + this.CONSTANTS.VERTICAL_SPACING : this.CONSTANTS.PASSAGE_PADDING;
 
-            parentKeys.forEach(parentKey => {
+            parentKeys.forEach((parentKey, groupIndex) => {
                 const passages = parentGroups[parentKey];
+                const parent = parentKey !== 'root' ? this.state.passages.get(parentKey) : null;
 
-                if (passages.length === 1 && parentKey !== 'root') {
-                    // Single child - try to align with parent Y but avoid overlaps
-                    const parent = this.state.passages.get(parentKey);
-                    const passage = this.state.passages.get(passages[0]);
-                    if (parent && passage && !positioned.has(passages[0])) {
-                        const desiredY = parent.relativeY || 0;
-                        const actualY = Math.max(desiredY, nextAvailableY);
+                if (parentKey !== 'root' && parent) {
+                    // NEW LOGIC: All children (single or multiple) align with parent when possible
+                    // First child aligns with parent, others stack below
+                    const desiredStartY = parent.relativeY || 0;
+                    const actualStartY = Math.max(desiredStartY, nextAvailableY);
 
-                        // X position is already set by depth calculation
-                        passage.x = currentX;
-                        passage.relativeY = actualY;
-                        positioned.add(passages[0]);
+                    let currentY = actualStartY;
+                    passages.forEach((passageId, index) => {
+                        const passage = this.state.passages.get(passageId);
+                        if (passage && !positioned.has(passageId)) {
+                            passage.x = currentX;
+                            passage.relativeY = currentY;
+                            positioned.add(passageId);
+                            currentY += this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
+                        }
+                    });
 
-                        nextAvailableY = actualY + this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
-                    }
-                } else if (passages.length > 1 && parentKey !== 'root') {
-                    // Multiple children - stack vertically centered on parent but avoid overlaps
-                    const parent = this.state.passages.get(parentKey);
-                    if (parent) {
-                        const totalHeight = passages.length * this.CONSTANTS.PASSAGE_HEIGHT +
-                                          (passages.length - 1) * this.CONSTANTS.VERTICAL_SPACING;
-                        const desiredStartY = (parent.relativeY || 0) - totalHeight / 2 + this.CONSTANTS.PASSAGE_HEIGHT / 2;
-                        const actualStartY = Math.max(desiredStartY, nextAvailableY);
-                        let currentY = actualStartY;
-
-                        passages.forEach(passageId => {
-                            const passage = this.state.passages.get(passageId);
-                            if (passage && !positioned.has(passageId)) {
-                                    passage.x = currentX;
-                                passage.relativeY = currentY;
-                                positioned.add(passageId);
-                                currentY += this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
-                            }
-                        });
-
-                        nextAvailableY = currentY;
+                    // Update next available Y and add group spacing
+                    nextAvailableY = currentY;
+                    if (groupIndex < parentKeys.length - 1) {
+                        // Add extra space between parent groups
+                        nextAvailableY += this.CONSTANTS.VERTICAL_SPACING;
                     }
                 } else {
-                    // Root passages or orphans - stack from top but avoid overlaps
-                    // Ensure minimum padding from top to avoid header overlap
+                    // Root passages - stack from top
                     let currentY = Math.max(this.CONSTANTS.PASSAGE_PADDING, nextAvailableY);
                     passages.forEach(passageId => {
                         const passage = this.state.passages.get(passageId);
@@ -769,15 +859,14 @@ const App = {
                             currentY += this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.VERTICAL_SPACING;
                         }
                     });
+
                     nextAvailableY = currentY;
+                    if (groupIndex < parentKeys.length - 1) {
+                        // Add extra space between groups
+                        nextAvailableY += this.CONSTANTS.VERTICAL_SPACING;
+                    }
                 }
             });
-
-            // Move to next column
-            currentX += this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING;
-            if (depth < sortedDepths[sortedDepths.length - 1]) {
-                currentX += this.CONSTANTS.PASSAGE_SPACING;
-            }
         });
 
         // Now position bottom cross-lane ROOT passages and their children
@@ -885,7 +974,7 @@ const App = {
                     if (!positioned.has(rootId)) {
                         const depth = depths.get(rootId);
                         const depthX = this.CONSTANTS.PASSAGE_PADDING +
-                                      (depth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
+                                      (depth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 8));
 
                         root.x = depthX;
                         root.relativeY = currentY;
@@ -923,7 +1012,7 @@ const App = {
                             if (child && !positioned.has(childId)) {
                                 const childDepth = depths.get(childId);
                                 const childX = this.CONSTANTS.PASSAGE_PADDING +
-                                              (childDepth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2));
+                                              (childDepth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 8));
 
                                 // Check if this Y position is already used at this depth
                                 if (!usedYByDepth[childDepth]) {
@@ -983,6 +1072,55 @@ const App = {
                 passage.y = baseY + this.CONSTANTS.PASSAGE_PADDING + yOffset + (passage.relativeY || 0);
             }
         });
+
+        // Position LOOP and JUMP passages to the right of their source passages
+        const stickyNotes = new Map();
+
+        // Collect all sticky notes for this lane
+        if (this.state.loopPassages) {
+            for (const loopPassage of this.state.loopPassages.values()) {
+                if (loopPassage.laneId === lane.id) {
+                    stickyNotes.set(loopPassage.fromId, loopPassage);
+                }
+            }
+        }
+
+        if (this.state.jumpPassages && !this.state.showCrossLaneLinks) {
+            for (const jumpPassage of this.state.jumpPassages.values()) {
+                if (jumpPassage.laneId === lane.id) {
+                    // If there's already a LOOP for this passage, position JUMP below it
+                    const existingSticky = stickyNotes.get(jumpPassage.fromId);
+                    if (existingSticky) {
+                        jumpPassage.offsetY = this.CONSTANTS.PASSAGE_HEIGHT * 0.7 + this.CONSTANTS.VERTICAL_SPACING;
+                    }
+                    stickyNotes.set(`jump_${jumpPassage.fromId}`, jumpPassage);
+                }
+            }
+        }
+
+        // Position all sticky notes (simplified - no collision detection needed)
+        if (stickyNotes.size > 0) {
+            // Group sticky notes by their source passage
+            const stickyBySource = new Map();
+            for (const sticky of stickyNotes.values()) {
+                if (!stickyBySource.has(sticky.fromId)) {
+                    stickyBySource.set(sticky.fromId, []);
+                }
+                stickyBySource.get(sticky.fromId).push(sticky);
+            }
+
+            // Position sticky notes for each source passage
+            for (const [sourceId, stickies] of stickyBySource) {
+                const sourcePassage = this.state.passages.get(sourceId);
+                if (sourcePassage) {
+                    // Position stickies to the right of source passage, stacking vertically if multiple
+                    stickies.forEach((sticky, index) => {
+                        sticky.x = sourcePassage.x + this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING;
+                        sticky.y = sourcePassage.y + (index * (this.CONSTANTS.STICKY_HEIGHT + 10));
+                    });
+                }
+            }
+        }
     },
 
     calculatePassageDepths(lane, graph) {
@@ -1001,11 +1139,26 @@ const App = {
 
             calculating.add(passageId);
 
-            // Find all parents (both in-lane and cross-lane)
+            // Check if this is a Start passage (has $start tag or title is "Start")
+            const passage = this.state.passages.get(passageId);
+            if (passage && (passage.title === 'Start' || (passage.tags && passage.tags.includes('$start')))) {
+                // Start passages are always root nodes
+                depths.set(passageId, 0);
+                calculating.delete(passageId);
+                return 0;
+            }
+
+            // Find all parents (both in-lane and cross-lane if enabled)
             const allParents = this.state.links
                 .filter(link => link.to === passageId)
                 .map(link => this.state.passages.get(link.from))
-                .filter(parent => parent);
+                .filter(parent => {
+                    if (!parent) return false;
+                    // Always include in-lane parents
+                    if (parent.laneId === lane.id) return true;
+                    // Only include cross-lane parents if toggle is ON
+                    return this.state.showCrossLaneLinks;
+                });
 
             if (allParents.length === 0) {
                 // No parents - this is a root
@@ -1245,7 +1398,10 @@ const App = {
 
     extractLinks() {
         this.state.links = [];
+        this.state.loopPassages = new Map(); // Store special LOOP passages
+        this.state.jumpPassages = new Map(); // Store special JUMP passages for cross-lane links
 
+        // First pass: collect all normal links
         for (const passage of this.state.passages.values()) {
             const linkRegex = /\[\[([^\]]+)\]\]/g;
             let match;
@@ -1278,6 +1434,89 @@ const App = {
                     this.state.links.push({
                         from: passage.id,
                         to: targetPassage.id
+                    });
+                }
+            }
+        }
+
+        // Second pass: identify backward links and cross-lane links
+        const depths = new Map();
+
+        // Calculate depths for all passages across all lanes
+        for (const lane of this.state.lanes) {
+            const laneDepths = this.calculatePassageDepths(lane, null);
+            for (const [passageId, depth] of laneDepths) {
+                depths.set(passageId, depth);
+            }
+        }
+
+        // Find backward links and cross-lane links
+        const backwardLinks = [];
+        const crossLaneLinks = [];
+
+        for (const link of this.state.links) {
+            const fromPassage = this.state.passages.get(link.from);
+            const toPassage = this.state.passages.get(link.to);
+
+            if (fromPassage && toPassage) {
+                // Check if it's a cross-lane link
+                if (fromPassage.laneId !== toPassage.laneId) {
+                    crossLaneLinks.push(link);
+                } else {
+                    // Check if it's a backward link within the same lane
+                    const fromDepth = depths.get(link.from) || 0;
+                    const toDepth = depths.get(link.to) || 0;
+
+                    if (fromDepth >= toDepth && toDepth === 0) { // Only for links back to root passages
+                        backwardLinks.push(link);
+                    }
+                }
+            }
+        }
+
+        // Create LOOP passages for backward links
+        for (const link of backwardLinks) {
+            const fromPassage = this.state.passages.get(link.from);
+            const toPassage = this.state.passages.get(link.to);
+
+            if (fromPassage && toPassage) {
+                // Create a unique ID for the loop passage
+                const loopId = `loop_${link.from}_${link.to}`;
+
+                // Store loop passage info (will be rendered specially)
+                this.state.loopPassages.set(loopId, {
+                    id: loopId,
+                    fromId: link.from,
+                    toId: link.to,
+                    toTitle: toPassage.title,
+                    laneId: fromPassage.laneId,
+                    x: 0, // Will be positioned relative to source passage
+                    y: 0
+                });
+            }
+        }
+
+        // Create JUMP passages for cross-lane links (when toggle is OFF)
+        if (!this.state.showCrossLaneLinks) {
+            for (const link of crossLaneLinks) {
+                const fromPassage = this.state.passages.get(link.from);
+                const toPassage = this.state.passages.get(link.to);
+                const toLane = this.state.lanes.find(l => l.id === toPassage.laneId);
+
+                if (fromPassage && toPassage && toLane) {
+                    // Create a unique ID for the jump passage
+                    const jumpId = `jump_${link.from}_${link.to}`;
+
+                    // Store jump passage info (will be rendered specially)
+                    this.state.jumpPassages.set(jumpId, {
+                        id: jumpId,
+                        fromId: link.from,
+                        toId: link.to,
+                        toTitle: toPassage.title,
+                        toLaneName: toLane.name,
+                        laneId: fromPassage.laneId,
+                        x: 0, // Will be positioned relative to source passage
+                        y: 0
                     });
                 }
             }
@@ -1388,8 +1627,8 @@ const App = {
         } else {
             // Render normal content
             Swimlanes.renderLanes(this.ctx, this.state.lanes, this.CONSTANTS, this.state.activeLaneId, (lane) => this.calculateLaneHeight(lane), colors, (lane) => this.getLaneImage(lane));
-            Swimlanes.renderPassages(this.ctx, this.state.passages, this.state.selectedPassage, this.CONSTANTS, this.state.lanes, colors, this.state.links);
-            Swimlanes.renderLinks(this.ctx, this.state.passages, this.state.links, this.CONSTANTS, this.state.lanes, colors, this.state.showCrossLaneLinks);
+            Swimlanes.renderPassages(this.ctx, this.state.passages, this.state.selectedPassage, this.CONSTANTS, this.state.lanes, colors, this.state.links, this.state.loopPassages, this.state.jumpPassages);
+            Swimlanes.renderLinks(this.ctx, this.state.passages, this.state.links, this.CONSTANTS, this.state.lanes, colors, this.state.showCrossLaneLinks, this.state.loopPassages);
         }
     },
 
@@ -1451,7 +1690,13 @@ const App = {
         const btn = document.getElementById('cross-lane-toggle');
         btn.style.opacity = this.state.showCrossLaneLinks ? '1' : '0.5';
 
-        // Re-render to show/hide cross-lane links
+        // Re-extract links to update JUMP passages (they only show when toggle is OFF)
+        this.extractLinks();
+
+        // Recalculate positions since cross-lane relationships affect layout
+        this.updateAllLanePositions();
+
+        // Re-render to show/hide cross-lane links and new positions
         this.render();
         this.saveToStorage();
     },

@@ -1,0 +1,59 @@
+:: Start
+Your story will display this passage first. Edit it by double clicking it.
+
+[[one]]
+
+:: StoryTitle
+Untitled Story
+
+:: StoryAuthor
+Anonymous
+
+:: one
+[[two_a]]
+[[two_b]]
+
+:: two_a
+[[three_a]]
+[[three_b]]
+[[three_c]]
+
+:: two_b
+
+
+:: three_a
+[[four_a]]
+[[four_b]]
+[[four_c]]
+
+:: three_b
+[[four_b_1]]
+[[four_b_2]]
+[[four_b_3]]
+
+:: three_c
+[[four_c_1]]
+[[four_c_2]]
+
+:: four_a
+
+
+:: four_b
+
+
+:: four_c
+
+
+:: four_b_1
+
+
+:: four_b_2
+
+
+:: four_b_3
+
+
+:: four_c_1
+
+
+:: four_c_2

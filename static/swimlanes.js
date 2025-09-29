@@ -150,7 +150,7 @@ const Swimlanes = {
         });
     },
 
-    renderPassages(ctx, passages, selectedPassage, constants, lanes, colors, links) {
+    renderPassages(ctx, passages, selectedPassage, constants, lanes, colors, links, loopPassages, jumpPassages) {
         // Pre-calculate orphan passages (no incoming or outgoing links)
         const orphanPassages = new Set();
         for (const passage of passages.values()) {
@@ -294,6 +294,158 @@ const Swimlanes = {
             // Restore clipping region
             ctx.restore();
         }
+
+        // Render LOOP passages (special sticky note style)
+        if (loopPassages) {
+            for (const loopPassage of loopPassages.values()) {
+                // Check if the loop's lane is collapsed
+                const lane = lanes ? lanes.find(l => l.id === loopPassage.laneId) : null;
+                if (lane && lane.collapsed) continue;
+
+                // Skip if loop passage hasn't been positioned yet (x and y are still 0)
+                if (loopPassage.x === 0 && loopPassage.y === 0) continue;
+
+                // First, draw connector from source passage to LOOP sticky
+                const sourcePassage = passages.get(loopPassage.fromId);
+                if (sourcePassage) {
+                    // Draw a dotted line from right side of source to left side of LOOP
+                    ctx.strokeStyle = '#999999';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([3, 3]);
+
+                    const fromX = sourcePassage.x + constants.PASSAGE_WIDTH;
+                    const fromY = sourcePassage.y + constants.PASSAGE_HEIGHT / 2;
+                    const toX = loopPassage.x;
+                    const toY = loopPassage.y + constants.STICKY_HEIGHT / 2;
+
+                    ctx.beginPath();
+                    ctx.moveTo(fromX, fromY);
+                    ctx.lineTo(toX, toY);
+                    ctx.stroke();
+
+                    // Draw small arrowhead
+                    const angle = Math.atan2(toY - fromY, toX - fromX);
+                    const arrowLength = 6;
+                    const arrowAngle = Math.PI / 6;
+
+                    ctx.beginPath();
+                    ctx.moveTo(toX, toY);
+                    ctx.lineTo(
+                        toX - arrowLength * Math.cos(angle - arrowAngle),
+                        toY - arrowLength * Math.sin(angle - arrowAngle)
+                    );
+                    ctx.moveTo(toX, toY);
+                    ctx.lineTo(
+                        toX - arrowLength * Math.cos(angle + arrowAngle),
+                        toY - arrowLength * Math.sin(angle + arrowAngle)
+                    );
+                    ctx.stroke();
+                    ctx.setLineDash([]); // Reset dash
+                }
+
+                // Draw pale yellow sticky note style
+                ctx.fillStyle = '#FFFACD'; // LemonChiffon - classic sticky note yellow
+                ctx.fillRect(loopPassage.x, loopPassage.y, constants.STICKY_WIDTH, constants.STICKY_HEIGHT);
+
+                // Draw subtle border
+                ctx.strokeStyle = '#F0E68C'; // Khaki border - subtle
+                ctx.lineWidth = 1;
+                ctx.strokeRect(loopPassage.x, loopPassage.y, constants.STICKY_WIDTH, constants.STICKY_HEIGHT);
+
+                // Draw "LOOP" text at top
+                ctx.fillStyle = '#666666'; // Gray text for better readability on pale yellow
+                ctx.font = 'bold 11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillText('← LOOP', loopPassage.x + constants.STICKY_WIDTH / 2, loopPassage.y + 8);
+
+                // Draw target passage title
+                ctx.font = '10px sans-serif';
+                ctx.fillStyle = '#444444'; // Dark gray
+                const targetText = this.truncateText(ctx, loopPassage.toTitle, constants.STICKY_WIDTH - 10);
+                ctx.fillText(targetText, loopPassage.x + constants.STICKY_WIDTH / 2, loopPassage.y + 25);
+
+                // Reset text alignment
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'alphabetic';
+            }
+        }
+
+        // Render JUMP passages (special sticky note style for cross-lane links)
+        if (jumpPassages) {
+            for (const jumpPassage of jumpPassages.values()) {
+                // Check if the jump's lane is collapsed
+                const lane = lanes ? lanes.find(l => l.id === jumpPassage.laneId) : null;
+                if (lane && lane.collapsed) continue;
+
+                // Skip if jump passage hasn't been positioned yet (x and y are still 0)
+                if (jumpPassage.x === 0 && jumpPassage.y === 0) continue;
+
+                // First, draw connector from source passage to JUMP sticky
+                const sourcePassage = passages.get(jumpPassage.fromId);
+                if (sourcePassage) {
+                    // Draw a dotted line from right side of source to left side of JUMP
+                    ctx.strokeStyle = '#999999'; // Gray (matching LOOP connector)
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([3, 3]);
+
+                    const fromX = sourcePassage.x + constants.PASSAGE_WIDTH;
+                    const fromY = sourcePassage.y + constants.PASSAGE_HEIGHT / 2;
+                    const toX = jumpPassage.x;
+                    const toY = jumpPassage.y + constants.STICKY_HEIGHT / 2;
+
+                    ctx.beginPath();
+                    ctx.moveTo(fromX, fromY);
+                    ctx.lineTo(toX, toY);
+                    ctx.stroke();
+
+                    // Draw small arrowhead
+                    const angle = Math.atan2(toY - fromY, toX - fromX);
+                    const arrowLength = 6;
+                    const arrowAngle = Math.PI / 6;
+
+                    ctx.beginPath();
+                    ctx.moveTo(toX, toY);
+                    ctx.lineTo(
+                        toX - arrowLength * Math.cos(angle - arrowAngle),
+                        toY - arrowLength * Math.sin(angle - arrowAngle)
+                    );
+                    ctx.moveTo(toX, toY);
+                    ctx.lineTo(
+                        toX - arrowLength * Math.cos(angle + arrowAngle),
+                        toY - arrowLength * Math.sin(angle + arrowAngle)
+                    );
+                    ctx.stroke();
+                    ctx.setLineDash([]); // Reset dash
+                }
+
+                // Draw pale yellow sticky note style (matching LOOP sticky)
+                ctx.fillStyle = '#FFFACD'; // LemonChiffon - classic sticky note yellow
+                ctx.fillRect(jumpPassage.x, jumpPassage.y, constants.STICKY_WIDTH, constants.STICKY_HEIGHT);
+
+                // Draw subtle border
+                ctx.strokeStyle = '#F0E68C'; // Khaki border - subtle
+                ctx.lineWidth = 1;
+                ctx.strokeRect(jumpPassage.x, jumpPassage.y, constants.STICKY_WIDTH, constants.STICKY_HEIGHT);
+
+                // Draw "JUMP" text at top
+                ctx.fillStyle = '#666666'; // Gray text for better readability on pale yellow
+                ctx.font = 'bold 11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillText('↗ JUMP', jumpPassage.x + constants.STICKY_WIDTH / 2, jumpPassage.y + 8);
+
+                // Draw target passage title (including lane name)
+                ctx.font = '10px sans-serif';
+                ctx.fillStyle = '#444444'; // Dark gray
+                const targetText = this.truncateText(ctx, jumpPassage.toTitle, constants.STICKY_WIDTH - 10);
+                ctx.fillText(targetText, jumpPassage.x + constants.STICKY_WIDTH / 2, jumpPassage.y + 25);
+
+                // Reset text alignment
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'alphabetic';
+            }
+        }
     },
 
     truncateText(ctx, text, maxWidth, addEllipsis = true) {
@@ -331,8 +483,21 @@ const Swimlanes = {
         return bestFit + ellipsis;
     },
 
-    renderLinks(ctx, passages, links, constants, lanes, colors, showCrossLaneLinks = false) {
+    renderLinks(ctx, passages, links, constants, lanes, colors, showCrossLaneLinks = false, loopPassages) {
+        // Build set of backward links that have LOOP passages
+        const backwardLinkSet = new Set();
+        if (loopPassages) {
+            for (const loopPassage of loopPassages.values()) {
+                backwardLinkSet.add(`${loopPassage.fromId}_${loopPassage.toId}`);
+            }
+        }
+
         links.forEach(link => {
+            // Skip backward links that have LOOP passages
+            if (backwardLinkSet.has(`${link.from}_${link.to}`)) {
+                return;
+            }
+
             const fromPassage = passages.get(link.from);
             const toPassage = passages.get(link.to);
 
@@ -351,23 +516,34 @@ const Swimlanes = {
             // Skip cross-lane links if toggle is off
             if (isCrossLane && !showCrossLaneLinks) return;
 
+            // Determine if this is a backward link (right to left)
+            const isBackwardLink = fromPassage.x > toPassage.x;
+
             // Set style based on connection type
             if (isCrossLane) {
                 ctx.strokeStyle = colors.crossLaneLinkColor || '#ff9500';  // Orange for cross-lane
                 ctx.lineWidth = 2;
                 ctx.setLineDash([5, 5]);  // Dashed line
+            } else if (isBackwardLink) {
+                ctx.strokeStyle = '#000080';  // Navy blue for backward links
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([]);  // Solid line
             } else {
                 ctx.strokeStyle = colors.linkColor;
                 ctx.lineWidth = 1;
                 ctx.setLineDash([]);  // Solid line
             }
 
-            // Arrow originates from right side of parent, centered vertically
-            const fromX = fromPassage.x + constants.PASSAGE_WIDTH;
+            // For backward links, start from left side; for forward links, from right side
+            const fromX = isBackwardLink ?
+                          fromPassage.x :
+                          (fromPassage.x + constants.PASSAGE_WIDTH);
             const fromY = fromPassage.y + constants.PASSAGE_HEIGHT / 2;
 
-            // Arrow points to left side of child, centered vertically
-            const toX = toPassage.x;
+            // For backward links, arrow points to right side; for forward links, to left side
+            const toX = isBackwardLink ?
+                        (toPassage.x + constants.PASSAGE_WIDTH) :
+                        toPassage.x;
             const toY = toPassage.y + constants.PASSAGE_HEIGHT / 2;
 
             ctx.beginPath();
@@ -391,21 +567,40 @@ const Swimlanes = {
             ctx.setLineDash([]);  // Reset line dash for arrowhead
 
             // Draw arrowhead at the destination
-            const angle = Math.atan2(toY - fromY, toX - fromX);
             const arrowLength = 8;
             const arrowAngle = Math.PI / 6;
 
-            ctx.beginPath();
-            ctx.moveTo(toX, toY);
-            ctx.lineTo(
-                toX - arrowLength * Math.cos(angle - arrowAngle),
-                toY - arrowLength * Math.sin(angle - arrowAngle)
-            );
-            ctx.moveTo(toX, toY);
-            ctx.lineTo(
-                toX - arrowLength * Math.cos(angle + arrowAngle),
-                toY - arrowLength * Math.sin(angle + arrowAngle)
-            );
+            if (isBackwardLink) {
+                // For backward links, calculate angle from a point just outside the right edge
+                const angle = Math.atan2(toY - fromY, toX - (fromX + 10));
+
+                ctx.beginPath();
+                ctx.moveTo(toX, toY);
+                ctx.lineTo(
+                    toX + arrowLength * Math.cos(angle - arrowAngle),
+                    toY + arrowLength * Math.sin(angle - arrowAngle)
+                );
+                ctx.moveTo(toX, toY);
+                ctx.lineTo(
+                    toX + arrowLength * Math.cos(angle + arrowAngle),
+                    toY + arrowLength * Math.sin(angle + arrowAngle)
+                );
+            } else {
+                // For forward links, arrow points into left edge
+                const angle = Math.atan2(toY - fromY, toX - fromX);
+
+                ctx.beginPath();
+                ctx.moveTo(toX, toY);
+                ctx.lineTo(
+                    toX - arrowLength * Math.cos(angle - arrowAngle),
+                    toY - arrowLength * Math.sin(angle - arrowAngle)
+                );
+                ctx.moveTo(toX, toY);
+                ctx.lineTo(
+                    toX - arrowLength * Math.cos(angle + arrowAngle),
+                    toY - arrowLength * Math.sin(angle + arrowAngle)
+                );
+            }
             ctx.stroke();
         });
     },
