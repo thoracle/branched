@@ -1957,8 +1957,16 @@ Use Ctrl/Cmd+click to select multiple files`;
 
     createOrphanageIfNeeded() {
         // Find orphan passages (no incoming or outgoing links)
+        // BUT exclude metadata passages - they should stay in metadata lane
         const orphanPassages = [];
+        const metadataLane = this.state.lanes.find(l => l.isMetadata);
+
         for (const passage of this.state.passages.values()) {
+            // Skip metadata passages - they belong in metadata lane even if orphaned
+            if (metadataLane && passage.laneId === metadataLane.id) {
+                continue;
+            }
+
             const hasIncoming = this.state.links.some(l => l.to === passage.id);
             const hasOutgoing = this.state.links.some(l => l.from === passage.id);
             if (!hasIncoming && !hasOutgoing) {
