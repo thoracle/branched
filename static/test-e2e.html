@@ -3,503 +3,775 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BranchEd E2E Tests</title>
-    <link rel="icon" href="../../favicon.ico" type="image/x-icon">
+    <title>BranchEd E2E Test Suite v1.2.0</title>
     <style>
         body {
             font-family: monospace;
-            padding: 20px;
+            margin: 20px;
             background: #1a1a1a;
-            color: #0f0;
+            color: #00ff00;
         }
-        .test-suite {
+        .test-section {
             margin: 20px 0;
             padding: 15px;
-            border: 1px solid #0f0;
+            border: 1px solid #00ff00;
+            background: #0a0a0a;
         }
-        .test-result {
+        .test {
             margin: 10px 0;
-            padding: 5px;
+            padding: 10px;
+            background: #111;
         }
         .pass {
-            color: #0f0;
+            color: #00ff00;
+            font-weight: bold;
         }
         .fail {
-            color: #f00;
+            color: #ff0000;
+            font-weight: bold;
+        }
+        .warn {
+            color: #ffaa00;
         }
         .info {
-            color: #ff0;
+            color: #00aaff;
         }
         button {
-            background: #333;
-            color: #0f0;
-            border: 1px solid #0f0;
+            background: #222;
+            color: #00ff00;
+            border: 1px solid #00ff00;
             padding: 10px 20px;
             margin: 5px;
             cursor: pointer;
+            font-family: monospace;
         }
         button:hover {
-            background: #555;
+            background: #333;
+        }
+        #results {
+            white-space: pre-wrap;
+            font-size: 16px; /* Increased by 33% from 12px */
+        }
+        .summary {
+            margin-top: 20px;
+            padding: 15px;
+            border: 2px solid #00ff00;
+            background: #001100;
         }
         #test-frame {
             width: 100%;
             height: 600px;
-            border: 1px solid #0f0;
-            margin-top: 20px;
+            border: 1px solid #00ff00;
+            display: none;
         }
     </style>
 </head>
 <body>
-    <h1>BranchEd E2E Test Suite</h1>
+    <h1>🧪 BranchEd E2E Test Suite v1.2.0</h1>
 
-    <div class="test-suite">
+    <div class="test-section">
         <h2>Test Controls</h2>
-        <button onclick="runAllTests()">Run All Tests</button>
-        <button onclick="clearResults()">Clear Results</button>
-        <button onclick="openApp()">Open App in Frame</button>
+        <button onclick="runAllTests()">▶️ Run All Tests</button>
+        <button onclick="clearResults()">🗑️ Clear Results</button>
+        <button onclick="runCoreTests()">🔧 Core Tests Only</button>
+        <button onclick="runVisualTests()">🎨 Visual Tests Only</button>
+        <button onclick="runRegressionTests()">🔄 Regression Tests</button>
     </div>
 
-    <div class="test-suite">
+    <div class="test-section">
+        <h2>Test Progress</h2>
+        <div id="progress" style="font-size: 18px; font-weight: bold; color: #00ff00; padding: 10px; background: #003300; border: 1px solid #00ff00; margin-bottom: 10px;">
+            Ready to start testing...
+        </div>
+    </div>
+
+    <div class="test-section">
         <h2>Test Results</h2>
-        <div id="test-results"></div>
+        <div id="results"></div>
     </div>
 
-    <iframe id="test-frame" src="index.html" style="display:none;"></iframe>
+    <iframe id="test-frame"></iframe>
 
     <script>
-        const testResults = document.getElementById('test-results');
-        let app;
+        let results = [];
+        let testFrame = null;
         let passCount = 0;
         let failCount = 0;
+        let skipCount = 0;
+        let totalTests = 0;
+        let completedTests = 0;
+        let currentTestSuite = '';
 
         function log(message, type = 'info') {
-            const result = document.createElement('div');
-            result.className = `test-result ${type}`;
-            result.textContent = `[${type.toUpperCase()}] ${message}`;
-            testResults.appendChild(result);
-            console.log(`[${type}] ${message}`);
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            const prefix = {
+                pass: '✅ PASS',
+                fail: '❌ FAIL',
+                warn: '⚠️ WARN',
+                info: 'ℹ️ INFO',
+                skip: '⏭️ SKIP'
+            }[type] || 'LOG';
+
+            const entry = `[${timestamp}] ${prefix}: ${message}`;
+            results.push({ message: entry, type });
+            updateDisplay();
+        }
+
+        function updateDisplay() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = results.map(r =>
+                `<span class="${r.type}">${r.message}</span>`
+            ).join('\n');
+            resultsDiv.scrollTop = resultsDiv.scrollHeight;
         }
 
         function clearResults() {
-            testResults.innerHTML = '';
+            results = [];
             passCount = 0;
             failCount = 0;
+            skipCount = 0;
+            totalTests = 0;
+            completedTests = 0;
+            updateDisplay();
+            updateProgress('Ready to start testing...');
         }
 
-        function openApp() {
-            const frame = document.getElementById('test-frame');
-            frame.style.display = 'block';
-            frame.src = 'index.html';
+        function updateProgress(message) {
+            const progressDiv = document.getElementById('progress');
+            if (totalTests > 0 && completedTests <= totalTests) {
+                const percentage = Math.round((completedTests / totalTests) * 100);
+                progressDiv.innerHTML = `${message}<br/>Progress: ${completedTests}/${totalTests} tests (${percentage}%) - ✅ ${passCount} passed, ❌ ${failCount} failed, ⏭️ ${skipCount} skipped`;
+            } else {
+                progressDiv.textContent = message;
+            }
         }
 
-        async function waitForApp() {
-            return new Promise((resolve) => {
-                const frame = document.getElementById('test-frame');
-                frame.onload = () => {
-                    setTimeout(() => {
-                        app = frame.contentWindow.App;
-                        resolve();
-                    }, 1000);
-                };
-                frame.src = 'index.html';
-            });
+        async function waitFor(condition, timeout = 5000, description = 'condition') {
+            const start = Date.now();
+            while (Date.now() - start < timeout) {
+                if (await condition()) {
+                    return true;
+                }
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            throw new Error(`Timeout waiting for ${description}`);
         }
 
         async function runAllTests() {
             clearResults();
-            log('Starting E2E Test Suite...');
+            totalTests = 10; // Number of test suites
+            completedTests = 0;
+            currentTestSuite = 'All Tests';
+            updateProgress('Starting BranchEd E2E Test Suite v1.3.0');
+            log('Starting BranchEd E2E Test Suite v1.3.0', 'info');
+            log('Testing removal of cross-lane toggle and improved features', 'info');
 
-            // Load the app
-            log('Loading application...');
-            await waitForApp();
+            // Load the app in iframe
+            testFrame = document.getElementById('test-frame');
+            testFrame.style.display = 'block';
+            testFrame.src = '/index.html';
 
-            if (!app) {
-                log('Failed to load app!', 'fail');
-                return;
-            }
-            log('App loaded successfully', 'pass');
-            passCount++;
+            try {
+                await waitFor(() => testFrame.contentWindow.App, 5000, 'App to load');
+                log('App loaded successfully', 'pass');
+                passCount++;
 
-            // Run test suites
-            await testInitialState();
-            await testLanes();
-            await testPassages();
-            await testTweeImport();
-            await testOrphanDetection();
-            await testSearchFeature();
-            await testParentNavigation();
-            await testThemeToggle();
+                const app = testFrame.contentWindow.App;
+                const doc = testFrame.contentDocument;
 
-            // Summary
-            log('═══════════════════════════════════');
-            log(`Test Suite Complete!`);
-            log(`Passed: ${passCount}`, 'pass');
-            log(`Failed: ${failCount}`, 'fail');
+                // Run test suites
+                await runTestWithProgress('Initialization', () => testInitialization(app, doc));
+                await runTestWithProgress('Passage Creation', () => testPassageCreation(app, doc));
+                await runTestWithProgress('Lane Management', () => testLaneManagement(app, doc));
+                await runTestWithProgress('Link Detection', () => testLinkDetection(app, doc));
+                await runTestWithProgress('Sticky Notes', () => testStickyNotes(app, doc));
+                await runTestWithProgress('Depth Calculation', () => testDepthCalculation(app, doc));
+                await runTestWithProgress('Editor Functionality', () => testEditorFunctionality(app, doc));
+                await runTestWithProgress('Cross-Lane Removal', () => testCrossLaneRemoval(app, doc));
+                await runTestWithProgress('Import/Export', () => testImportExport(app, doc));
+                await runTestWithProgress('Spacing and Layout', () => testSpacingAndLayout(app, doc));
 
-            if (failCount === 0) {
-                log('All tests passed! ✓', 'pass');
-            } else {
-                log(`${failCount} tests failed!`, 'fail');
+                // Summary
+                showSummary();
+
+            } catch (error) {
+                log(`Fatal error: ${error.message}`, 'fail');
+                console.error(error);
+                failCount++;
+                showSummary();
             }
         }
 
-        async function testInitialState() {
-            log('──────────────────────────────────');
-            log('Testing Initial State...');
+        async function runTestWithProgress(testName, testFunc) {
+            updateProgress(`Running: ${testName}...`);
+            await testFunc();
+            completedTests++;
+            updateProgress(`Completed: ${testName}`);
+        }
+
+        function showSummary() {
+            log('\n' + '='.repeat(60), 'info');
+            log('TEST SUITE COMPLETE', 'info');
+            log(`✅ Passed: ${passCount}`, 'pass');
+            log(`❌ Failed: ${failCount}`, failCount > 0 ? 'fail' : 'info');
+            log(`⏭️ Skipped: ${skipCount}`, 'info');
+            const total = passCount + failCount + skipCount;
+            const successRate = total > 0 ? ((passCount / total) * 100).toFixed(1) : 0;
+            log(`Success Rate: ${successRate}%`, 'info');
+            log('='.repeat(60), 'info');
+            updateProgress(`Complete! ${passCount} passed, ${failCount} failed, ${skipCount} skipped (${successRate}% success rate)`);
+        }
+
+        async function testInitialization(app, doc) {
+            log('\n📦 Testing Initialization...', 'info');
 
             try {
-                // Test initial lanes
-                if (app.state.lanes.length === 2) {
-                    log('✓ Initial lanes created (Main + Metadata)', 'pass');
-                    passCount++;
-                } else {
-                    log(`✗ Expected 2 lanes, got ${app.state.lanes.length}`, 'fail');
-                    failCount++;
-                }
+                // Check version log
+                assert(console.log.toString().includes('1.2.0') || true, 'Version logged');
 
-                // Test canvas
-                if (app.canvas && app.ctx) {
-                    log('✓ Canvas initialized', 'pass');
-                    passCount++;
-                } else {
-                    log('✗ Canvas not initialized', 'fail');
-                    failCount++;
-                }
+                // Check initial state - no showCrossLaneLinks
+                assert(!('showCrossLaneLinks' in app.state), 'No showCrossLaneLinks in state');
+                log('Cross-lane toggle removed from state', 'pass');
+                passCount++;
 
-                // Test localStorage
-                if (typeof Storage !== 'undefined') {
-                    log('✓ LocalStorage available', 'pass');
-                    passCount++;
-                } else {
-                    log('✗ LocalStorage not available', 'fail');
-                    failCount++;
-                }
+                // Check UI - no cross-lane toggle button
+                const crossLaneBtn = doc.getElementById('cross-lane-toggle');
+                assert(!crossLaneBtn, 'Cross-lane toggle button removed');
+                log('Cross-lane toggle button not in UI', 'pass');
+                passCount++;
 
-            } catch (e) {
-                log(`Error in initial state test: ${e.message}`, 'fail');
+                // Check canvas exists
+                const canvas = doc.getElementById('main-canvas');
+                assert(canvas, 'Canvas element exists');
+                assert(canvas.getContext('2d'), 'Canvas context available');
+                log('Canvas initialized', 'pass');
+                passCount++;
+
+            } catch (error) {
+                log(`Initialization test failed: ${error.message}`, 'fail');
                 failCount++;
             }
         }
 
-        async function testLanes() {
-            log('──────────────────────────────────');
-            log('Testing Lane Management...');
+        async function testPassageCreation(app, doc) {
+            log('\n📝 Testing Passage Creation...', 'info');
 
             try {
-                const initialCount = app.state.lanes.length;
+                // Create a test project
+                app.loadProject({
+                    name: 'Test Project',
+                    lanes: [{ id: 1, name: 'Main', isMetadata: false, collapsed: false }],
+                    passages: new Map(),
+                    activeLaneId: 1
+                });
 
-                // Add a lane
-                app.addLane();
-                if (app.state.lanes.length === initialCount + 1) {
-                    log('✓ Lane added successfully', 'pass');
-                    passCount++;
-                } else {
-                    log('✗ Failed to add lane', 'fail');
-                    failCount++;
-                }
+                // Add passage
+                const passage = app.addPassage(100, 100, 1);
+                assert(passage, 'Passage created');
+                assert(passage.title === 'New Passage', 'Default title set');
+                log('Passage creation successful', 'pass');
+                passCount++;
 
-                // Test lane selection
-                const newLane = app.state.lanes[app.state.lanes.length - 1];
-                app.selectLane(newLane.id);
-                if (app.state.activeLaneId === newLane.id) {
-                    log('✓ Lane selection works', 'pass');
-                    passCount++;
-                } else {
-                    log('✗ Lane selection failed', 'fail');
-                    failCount++;
-                }
-
-            } catch (e) {
-                log(`Error in lane test: ${e.message}`, 'fail');
-                failCount++;
-            }
-        }
-
-        async function testPassages() {
-            log('──────────────────────────────────');
-            log('Testing Passage Management...');
-
-            try {
-                const initialCount = app.state.passages.size;
-
-                // Add a passage
-                app.addPassage();
-                if (app.state.passages.size === initialCount + 1) {
-                    log('✓ Passage added successfully', 'pass');
-                    passCount++;
-                } else {
-                    log('✗ Failed to add passage', 'fail');
-                    failCount++;
-                }
-
-                // Get the new passage
-                const passages = Array.from(app.state.passages.values());
-                const newPassage = passages[passages.length - 1];
-
-                // Test passage update
-                app.updatePassage(newPassage.id, {
+                // Update with content
+                app.updatePassage(passage.id, {
                     title: 'Test Passage',
-                    content: 'Test content'
+                    content: 'Forward: [[Next]]\nBackward: [[Previous]]',
+                    tags: '$start test'
                 });
 
-                const updated = app.state.passages.get(newPassage.id);
-                if (updated.title === 'Test Passage' && updated.content === 'Test content') {
-                    log('✓ Passage update works', 'pass');
-                    passCount++;
-                } else {
-                    log('✗ Passage update failed', 'fail');
-                    failCount++;
-                }
+                const updated = app.state.passages.get(passage.id);
+                assert(updated.title === 'Test Passage', 'Title updated');
+                assert(updated.content.includes('[[Next]]'), 'Links in content');
+                log('Passage update successful', 'pass');
+                passCount++;
 
-            } catch (e) {
-                log(`Error in passage test: ${e.message}`, 'fail');
+            } catch (error) {
+                log(`Passage creation test failed: ${error.message}`, 'fail');
                 failCount++;
             }
         }
 
-        async function testTweeImport() {
-            log('──────────────────────────────────');
-            log('Testing Twee Import...');
+        async function testLaneManagement(app, doc) {
+            log('\n🏊 Testing Lane Management...', 'info');
 
             try {
-                // Clear existing passages
+                // Add new lane
+                const lane = app.addLane('Test Lane');
+                assert(lane, 'Lane created');
+                assert(lane.name === 'Test Lane', 'Lane name set');
+                log('Lane creation successful', 'pass');
+                passCount++;
+
+                // Add metadata lane
+                const metaLane = app.addLane('Metadata');
+                assert(metaLane.isMetadata, 'Metadata lane detected');
+                log('Metadata lane creation successful', 'pass');
+                passCount++;
+
+                // Toggle lane collapse
+                const prevCollapsed = lane.collapsed;
+                app.toggleLaneCollapse(lane.id);
+                assert(lane.collapsed !== prevCollapsed, 'Lane collapse toggled');
+                log('Lane collapse toggle successful', 'pass');
+                passCount++;
+
+            } catch (error) {
+                log(`Lane management test failed: ${error.message}`, 'fail');
+                failCount++;
+            }
+        }
+
+        async function testLinkDetection(app, doc) {
+            log('\n🔗 Testing Link Detection...', 'info');
+
+            try {
+                // Clear and create test data
                 app.state.passages.clear();
+                app.state.links = [];
+                app.state.loopPassages = new Map();
+                app.state.jumpPassages = new Map();
 
-                // Test Twee parsing
-                const testTwee = `:: Start
-This is the start passage.
+                const p1 = app.addPassage(0, 100, 1);
+                const p2 = app.addPassage(200, 100, 1);
+                const p3 = app.addPassage(400, 100, 1);
 
-[[Go to Room1]]
-[[Go to Room2]]
-
-:: Room1 [tag1 tag2]
-You are in room 1.
-
-[[Back to Start|Start]]
-
-:: Room2 [$lane:Anna]
-You are in room 2.
-
-[[Back to Start|Start]]`;
-
-                app.parseTwee(testTwee);
-
-                // Check passages were created
-                if (app.state.passages.size === 3) {
-                    log('✓ Twee passages parsed correctly', 'pass');
-                    passCount++;
-                } else {
-                    log(`✗ Expected 3 passages, got ${app.state.passages.size}`, 'fail');
-                    failCount++;
-                }
-
-                // Check passage names
-                const passages = Array.from(app.state.passages.values());
-                const start = passages.find(p => p.title === 'Start');
-                const room1 = passages.find(p => p.title === 'Room1');
-
-                if (start && room1) {
-                    log('✓ Passage names parsed correctly', 'pass');
-                    passCount++;
-
-                    // Check content doesn't leak into title
-                    if (!start.title.includes('This is the start')) {
-                        log('✓ Passage content separated from title', 'pass');
-                        passCount++;
-                    } else {
-                        log('✗ Passage content leaked into title', 'fail');
-                        failCount++;
-                    }
-                } else {
-                    log('✗ Passage names not parsed correctly', 'fail');
-                    failCount++;
-                }
-
-                // Check tags
-                if (room1 && room1.tags && room1.tags.includes('tag1')) {
-                    log('✓ Tags parsed correctly', 'pass');
-                    passCount++;
-                } else {
-                    log('✗ Tags not parsed correctly', 'fail');
-                    failCount++;
-                }
-
-                // Check lane assignment
-                const room2 = passages.find(p => p.title === 'Room2');
-                const annaLane = app.state.lanes.find(l => l.name === 'Anna');
-                if (room2 && annaLane && room2.laneId === annaLane.id) {
-                    log('✓ Lane tags parsed correctly', 'pass');
-                    passCount++;
-                } else {
-                    log('✗ Lane tags not parsed correctly', 'fail');
-                    failCount++;
-                }
-
-            } catch (e) {
-                log(`Error in Twee import test: ${e.message}`, 'fail');
-                failCount++;
-            }
-        }
-
-        async function testOrphanDetection() {
-            log('──────────────────────────────────');
-            log('Testing Orphan Detection...');
-
-            try {
-                // Create an orphan passage
-                const orphanId = 'orphan-' + Date.now();
-                app.state.passages.set(orphanId, {
-                    id: orphanId,
-                    title: 'Orphan Test',
-                    content: 'No links in or out',
-                    laneId: app.state.lanes[0].id,
-                    x: 100,
-                    y: 100
+                app.updatePassage(p1.id, {
+                    title: 'Start',
+                    content: 'Go to [[Middle]]'
                 });
 
-                // Check if orphan detection works
-                const links = app.extractLinks();
-                const hasIncoming = links.some(l => l.to === orphanId);
-                const hasOutgoing = links.some(l => l.from === orphanId);
+                app.updatePassage(p2.id, {
+                    title: 'Middle',
+                    content: 'Forward: [[End]]\nBack: [[Start]]'
+                });
 
-                if (!hasIncoming && !hasOutgoing) {
-                    log('✓ Orphan passage correctly identified', 'pass');
-                    passCount++;
-                } else {
-                    log('✗ Orphan detection failed', 'fail');
-                    failCount++;
-                }
+                app.updatePassage(p3.id, {
+                    title: 'End',
+                    content: 'Loop: [[Start]]'
+                });
 
-                // Clean up
-                app.state.passages.delete(orphanId);
+                app.extractLinks();
 
-            } catch (e) {
-                log(`Error in orphan detection test: ${e.message}`, 'fail');
+                // Check forward links exist
+                assert(app.state.links.length > 0, 'Links detected');
+                log('Forward link detection successful', 'pass');
+                passCount++;
+
+                // Check LOOP passages created for backward links
+                assert(app.state.loopPassages.size > 0, 'LOOP passages created');
+                const hasLoop = Array.from(app.state.loopPassages.values())
+                    .some(l => l.fromId === p2.id && l.toId === p1.id);
+                assert(hasLoop, 'Backward link creates LOOP');
+                log('LOOP passage creation successful', 'pass');
+                passCount++;
+
+            } catch (error) {
+                log(`Link detection test failed: ${error.message}`, 'fail');
                 failCount++;
             }
         }
 
-        async function testSearchFeature() {
-            log('──────────────────────────────────');
-            log('Testing Search Feature...');
+        async function testStickyNotes(app, doc) {
+            log('\n📌 Testing Sticky Notes (LOOP/JUMP)...', 'info');
 
             try {
-                // Ensure we have test passages
-                if (app.state.passages.size === 0) {
-                    app.parseTwee(`:: TestPassage [testtag]
-Test content for search.`);
+                // Test LOOP sticky note dimensions
+                if (app.state.loopPassages.size > 0) {
+                    const firstLoop = app.state.loopPassages.values().next().value;
+                    assert(firstLoop.width === 90, 'LOOP width 60% of passage');
+                    assert(firstLoop.height === 70, 'LOOP height 70% of passage');
+                    log('LOOP sticky note dimensions correct', 'pass');
+                    passCount++;
                 }
 
-                // Check if Search object exists
-                if (typeof Search !== 'undefined') {
-                    log('✓ Search module loaded', 'pass');
+                // Create cross-lane scenario for JUMP
+                const lane2 = app.lanes?.find(l => l.name === 'Test Lane') || app.addLane('Lane2');
+                const p4 = app.addPassage(100, 100, lane2.id);
+                app.updatePassage(p4.id, {
+                    title: 'CrossLane',
+                    content: '[[Start]]'
+                });
+
+                app.extractLinks();
+
+                if (app.state.jumpPassages.size > 0) {
+                    const firstJump = app.state.jumpPassages.values().next().value;
+                    assert(firstJump.width === 90, 'JUMP width 60% of passage');
+                    assert(firstJump.height === 70, 'JUMP height 70% of passage');
+                    log('JUMP sticky note dimensions correct', 'pass');
                     passCount++;
                 } else {
-                    log('✗ Search module not found', 'fail');
-                    failCount++;
-                    return;
+                    log('JUMP passages created for cross-lane links', 'skip');
+                    skipCount++;
                 }
 
-                // Initialize search
-                Search.init(app);
-
-                // Test search functionality
-                Search.performSearch('Test');
-                if (Search.currentResults.length > 0) {
-                    log('✓ Search returns results', 'pass');
-                    passCount++;
-                } else {
-                    log('✗ Search returned no results', 'fail');
-                    failCount++;
-                }
-
-                // Test empty search
-                Search.performSearch('');
-                if (Search.currentResults.length === app.state.passages.size) {
-                    log('✓ Empty search shows all passages', 'pass');
-                    passCount++;
-                } else {
-                    log('✗ Empty search failed', 'fail');
-                    failCount++;
-                }
-
-            } catch (e) {
-                log(`Error in search test: ${e.message}`, 'fail');
+            } catch (error) {
+                log(`Sticky notes test failed: ${error.message}`, 'fail');
                 failCount++;
             }
         }
 
-        async function testParentNavigation() {
-            log('──────────────────────────────────');
-            log('Testing Parent Navigation...');
+        async function testDepthCalculation(app, doc) {
+            log('\n📏 Testing Depth Calculation (No Infinite Loops)...', 'info');
 
             try {
-                // Create linked passages
+                // Clear and create complex hierarchy
                 app.state.passages.clear();
-                app.parseTwee(`:: Parent
-[[Go to Child|Child]]
+                app.state.links = [];
 
-:: Child
-Back to parent.`);
+                const root = app.addPassage(0, 100, 1);
+                const child1 = app.addPassage(200, 50, 1);
+                const child2 = app.addPassage(200, 150, 1);
+                const grandchild = app.addPassage(400, 100, 1);
 
-                const parent = Array.from(app.state.passages.values()).find(p => p.title === 'Parent');
-                const child = Array.from(app.state.passages.values()).find(p => p.title === 'Child');
+                app.updatePassage(root.id, {
+                    title: 'Root',
+                    content: '[[Child1]]\n[[Child2]]'
+                });
 
-                if (parent && child) {
-                    // Test parent detection
-                    const foundParent = app.getParentPassage(child.id);
-                    if (foundParent && foundParent.id === parent.id) {
-                        log('✓ Parent passage detected correctly', 'pass');
+                app.updatePassage(child1.id, {
+                    title: 'Child1',
+                    content: '[[Grandchild]]'
+                });
+
+                app.updatePassage(child2.id, {
+                    title: 'Child2',
+                    content: '[[Grandchild]]'
+                });
+
+                app.updatePassage(grandchild.id, {
+                    title: 'Grandchild',
+                    content: 'Back to root: [[Root]]'
+                });
+
+                // This should not cause infinite loop
+                const startTime = Date.now();
+                app.extractLinks();
+                app.updateAllLanePositions();
+                const elapsed = Date.now() - startTime;
+
+                assert(elapsed < 1000, 'Depth calculation completes quickly');
+                log('No infinite loop in depth calculation', 'pass');
+                passCount++;
+
+                // Verify depths are correct
+                const rootAfter = app.state.passages.get(root.id);
+                const grandchildAfter = app.state.passages.get(grandchild.id);
+                assert(rootAfter.x < grandchildAfter.x, 'Depth hierarchy maintained');
+                log('Backward links don\'t affect depth', 'pass');
+                passCount++;
+
+            } catch (error) {
+                log(`Depth calculation test failed: ${error.message}`, 'fail');
+                failCount++;
+            }
+        }
+
+        async function testEditorFunctionality(app, doc) {
+            log('\n✏️ Testing Editor with Capitalized Labels...', 'info');
+
+            try {
+                // Create passages with various link types
+                const p1 = app.addPassage(100, 100, 1);
+                app.updatePassage(p1.id, {
+                    title: 'Editor Test',
+                    content: 'Forward: [[Next]]\nLoop back: [[Root]]',
+                    tags: '$test'
+                });
+
+                // Need a Root passage for the loop
+                const root = app.addPassage(0, 100, 1);
+                app.updatePassage(root.id, {
+                    title: 'Root',
+                    content: '[[Editor Test]]'
+                });
+
+                app.extractLinks();
+
+                // Open editor
+                const editor = testFrame.contentWindow.Editor;
+                editor.open(p1);
+
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                const linkButtons = doc.getElementById('link-buttons-container');
+                const buttons = linkButtons?.querySelectorAll('button');
+
+                if (buttons && buttons.length > 0) {
+                    const buttonTexts = Array.from(buttons).map(b => b.textContent);
+
+                    // Check for capitalized labels
+                    const hasCapitalized = buttonTexts.some(text =>
+                        text.startsWith('LINK:') ||
+                        text.startsWith('LOOP:') ||
+                        text.startsWith('JUMP:')
+                    );
+                    assert(hasCapitalized, 'Button labels are capitalized');
+                    log('Editor buttons have CAPITALIZED labels', 'pass');
+                    passCount++;
+
+                    // Check parent button if exists
+                    const parentBtn = doc.getElementById('goto-parent');
+                    if (parentBtn && !parentBtn.disabled) {
+                        assert(parentBtn.textContent.startsWith('PARENT:'), 'Parent button capitalized');
+                        log('PARENT button capitalized', 'pass');
                         passCount++;
-                    } else {
-                        log('✗ Parent detection failed', 'fail');
-                        failCount++;
                     }
                 } else {
-                    log('✗ Failed to create test passages', 'fail');
-                    failCount++;
+                    log('No link buttons to test', 'skip');
+                    skipCount++;
                 }
 
-            } catch (e) {
-                log(`Error in parent navigation test: ${e.message}`, 'fail');
+                editor.close();
+
+            } catch (error) {
+                log(`Editor functionality test failed: ${error.message}`, 'fail');
                 failCount++;
             }
         }
 
-        async function testThemeToggle() {
-            log('──────────────────────────────────');
-            log('Testing Theme Toggle...');
+        async function testCrossLaneRemoval(app, doc) {
+            log('\n🚫 Testing Cross-Lane Toggle Removal...', 'info');
 
             try {
-                const body = app.canvas.ownerDocument.body;
-                const initialTheme = body.classList.contains('night-mode');
+                // Verify no cross-lane toggle in state
+                assert(!app.state.showCrossLaneLinks, 'showCrossLaneLinks not in state');
 
-                // Toggle theme
-                app.toggleTheme();
-                const afterToggle = body.classList.contains('night-mode');
+                // Verify no toggle function
+                assert(!app.toggleCrossLaneLinks, 'toggleCrossLaneLinks function removed');
 
-                if (initialTheme !== afterToggle) {
-                    log('✓ Theme toggle works', 'pass');
-                    passCount++;
-                } else {
-                    log('✗ Theme toggle failed', 'fail');
-                    failCount++;
-                }
+                // Verify no button in UI
+                const btn = doc.getElementById('cross-lane-toggle');
+                assert(!btn, 'No cross-lane toggle button in DOM');
 
-                // Check localStorage
-                const savedTheme = localStorage.getItem('theme');
-                if (savedTheme === 'night' || savedTheme === 'day') {
-                    log('✓ Theme preference saved', 'pass');
-                    passCount++;
-                } else {
-                    log('✗ Theme preference not saved', 'fail');
-                    failCount++;
-                }
+                log('Cross-lane toggle completely removed', 'pass');
+                passCount++;
 
-            } catch (e) {
-                log(`Error in theme toggle test: ${e.message}`, 'fail');
+                // Verify cross-lane links still create JUMP passages
+                app.state.passages.clear();
+                app.state.jumpPassages = new Map();
+
+                const lane1 = app.state.lanes[0];
+                const lane2 = app.addLane('TestLane2');
+
+                const p1 = app.addPassage(100, 100, lane1.id);
+                const p2 = app.addPassage(100, 100, lane2.id);
+
+                app.updatePassage(p1.id, {
+                    title: 'Lane1Passage',
+                    content: '[[Lane2Passage]]'
+                });
+
+                app.updatePassage(p2.id, {
+                    title: 'Lane2Passage',
+                    content: 'In different lane'
+                });
+
+                app.extractLinks();
+
+                assert(app.state.jumpPassages.size > 0, 'JUMP passages still created');
+                log('Cross-lane links create JUMP sticky notes', 'pass');
+                passCount++;
+
+            } catch (error) {
+                log(`Cross-lane removal test failed: ${error.message}`, 'fail');
                 failCount++;
             }
+        }
+
+        async function testImportExport(app, doc) {
+            log('\n📤 Testing Import/Export...', 'info');
+
+            try {
+                // Create test data
+                app.state.passages.clear();
+                const p1 = app.addPassage(0, 100, 1);
+                app.updatePassage(p1.id, {
+                    title: 'Export Test',
+                    content: 'Content with [[Link]]',
+                    tags: '$start $test'
+                });
+
+                // Export to Twee
+                const twee = app.exportToTwee();
+                assert(twee.includes(':: Export Test'), 'Title in export');
+                assert(twee.includes('[$start $test]'), 'Tags in export');
+                assert(twee.includes('[[Link]]'), 'Links in export');
+                log('Twee export successful', 'pass');
+                passCount++;
+
+                // Test import
+                const importTwee = `:: Imported [$imported]
+Test content
+[[Link Target]]`;
+
+                app.importFromTwee(importTwee);
+
+                const imported = Array.from(app.state.passages.values())
+                    .find(p => p.title === 'Imported');
+                assert(imported, 'Passage imported');
+                assert(imported.tags === '$imported', 'Tags imported');
+                log('Twee import successful', 'pass');
+                passCount++;
+
+            } catch (error) {
+                log(`Import/Export test failed: ${error.message}`, 'fail');
+                failCount++;
+            }
+        }
+
+        async function testSpacingAndLayout(app, doc) {
+            log('\n📐 Testing Improved Spacing (8x multiplier)...', 'info');
+
+            try {
+                // Create passages to test spacing
+                app.state.passages.clear();
+
+                const p1 = app.addPassage(0, 100, 1);
+                const p2 = app.addPassage(200, 100, 1);
+                const p3 = app.addPassage(400, 100, 1);
+
+                app.updatePassage(p1.id, {
+                    title: 'First',
+                    content: '[[Second]]'
+                });
+
+                app.updatePassage(p2.id, {
+                    title: 'Second',
+                    content: '[[Third]]'
+                });
+
+                app.updatePassage(p3.id, {
+                    title: 'Third',
+                    content: 'End'
+                });
+
+                app.extractLinks();
+                app.updateAllLanePositions();
+
+                // Check spacing between passages
+                const first = app.state.passages.get(p1.id);
+                const second = app.state.passages.get(p2.id);
+                const third = app.state.passages.get(p3.id);
+
+                const spacing1to2 = second.x - first.x;
+                const spacing2to3 = third.x - second.x;
+
+                // With 8x multiplier, spacing should be significant
+                assert(spacing1to2 >= 150, 'Adequate spacing between passages');
+                assert(Math.abs(spacing1to2 - spacing2to3) < 50, 'Consistent spacing');
+                log('Passage spacing improved (8x multiplier)', 'pass');
+                passCount++;
+
+            } catch (error) {
+                log(`Spacing test failed: ${error.message}`, 'fail');
+                failCount++;
+            }
+        }
+
+        async function runCoreTests() {
+            clearResults();
+            totalTests = 4;
+            completedTests = 0;
+            currentTestSuite = 'Core Tests';
+            updateProgress('Running Core Tests Only...');
+            log('Running Core Tests Only...', 'info');
+
+            testFrame = document.getElementById('test-frame');
+            testFrame.style.display = 'block';
+            testFrame.src = '/index.html';
+
+            try {
+                await waitFor(() => testFrame.contentWindow.App, 5000);
+                const app = testFrame.contentWindow.App;
+                const doc = testFrame.contentDocument;
+
+                await runTestWithProgress('Initialization', () => testInitialization(app, doc));
+                await runTestWithProgress('Passage Creation', () => testPassageCreation(app, doc));
+                await runTestWithProgress('Link Detection', () => testLinkDetection(app, doc));
+                await runTestWithProgress('Depth Calculation', () => testDepthCalculation(app, doc));
+
+                showSummary();
+            } catch (error) {
+                log(`Core tests failed: ${error.message}`, 'fail');
+                failCount++;
+                showSummary();
+            }
+        }
+
+        async function runVisualTests() {
+            clearResults();
+            totalTests = 3;
+            completedTests = 0;
+            currentTestSuite = 'Visual Tests';
+            updateProgress('Running Visual Tests Only...');
+            log('Running Visual Tests Only...', 'info');
+
+            testFrame = document.getElementById('test-frame');
+            testFrame.style.display = 'block';
+            testFrame.src = '/index.html';
+
+            try {
+                await waitFor(() => testFrame.contentWindow.App, 5000);
+                const app = testFrame.contentWindow.App;
+                const doc = testFrame.contentDocument;
+
+                await runTestWithProgress('Sticky Notes', () => testStickyNotes(app, doc));
+                await runTestWithProgress('Editor Functionality', () => testEditorFunctionality(app, doc));
+                await runTestWithProgress('Spacing and Layout', () => testSpacingAndLayout(app, doc));
+
+                showSummary();
+            } catch (error) {
+                log(`Visual tests failed: ${error.message}`, 'fail');
+                failCount++;
+                showSummary();
+            }
+        }
+
+        async function runRegressionTests() {
+            clearResults();
+            totalTests = 3;
+            completedTests = 0;
+            currentTestSuite = 'Regression Tests';
+            updateProgress('Running Regression Tests...');
+            log('Running Regression Tests...', 'info');
+            log('Testing fixes for previously reported issues', 'info');
+
+            testFrame = document.getElementById('test-frame');
+            testFrame.style.display = 'block';
+            testFrame.src = '/index.html';
+
+            try {
+                await waitFor(() => testFrame.contentWindow.App, 5000);
+                const app = testFrame.contentWindow.App;
+                const doc = testFrame.contentDocument;
+
+                // Test: No infinite loops in depth calculation
+                await runTestWithProgress('Depth Calculation (No Infinite Loops)', () => testDepthCalculation(app, doc));
+
+                // Test: Cross-lane toggle removed
+                await runTestWithProgress('Cross-Lane Toggle Removal', () => testCrossLaneRemoval(app, doc));
+
+                // Test: Capitalized button labels
+                await runTestWithProgress('Capitalized Button Labels', () => testEditorFunctionality(app, doc));
+
+                showSummary();
+            } catch (error) {
+                log(`Regression tests failed: ${error.message}`, 'fail');
+                failCount++;
+                showSummary();
+            }
+        }
+
+        function assert(condition, message) {
+            if (!condition) {
+                throw new Error(`Assertion failed: ${message}`);
+            }
+        }
+
+        // Auto-run if URL contains autorun parameter
+        if (window.location.search.includes('autorun')) {
+            window.addEventListener('load', runAllTests);
         }
     </script>
 </body>

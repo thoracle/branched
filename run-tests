@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# BranchEd Quick Test Runner
+
+echo "🧪 Running BranchEd Tests..."
+echo ""
+
+# Run Python test suite
+python3 test_runner.py
+
+# Store exit code
+EXIT_CODE=$?
+
+echo ""
+if [ $EXIT_CODE -eq 0 ]; then
+    echo "✅ All tests passed!"
+else
+    echo "❌ Some tests failed. Check output above."
+fi
+
+exit $EXIT_CODE

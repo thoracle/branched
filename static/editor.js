@@ -95,18 +95,10 @@ const Editor = {
         tagsInput.value = tagArray.join(' ');
         contentInput.value = passage.content || '';
 
-        // Check if passage has a parent and enable/disable parent button
-        const hasParent = this.app.getParentPassage(passage.id);
-        parentBtn.disabled = !hasParent;
-        if (hasParent) {
-            // Just show the parent's title, not content
-            const parentTitle = hasParent.title || 'Untitled';
-            parentBtn.textContent = `Parent: ${parentTitle}`;
-        } else {
-            parentBtn.textContent = 'No Parent';
-        }
+        // Hide the old parent button since we'll add it to link buttons
+        parentBtn.style.display = 'none';
 
-        // Create link buttons for all links in the passage
+        // Create link buttons for all links in the passage (including parent)
         this.updateLinkButtons(passage);
 
         panel.classList.remove('hidden');
@@ -119,6 +111,22 @@ const Editor = {
     updateLinkButtons(passage) {
         const linkButtonsContainer = document.getElementById('link-buttons-container');
         linkButtonsContainer.innerHTML = ''; // Clear existing buttons
+
+        // First, add parent button if exists
+        const hasParent = this.app.getParentPassage(passage.id);
+        if (hasParent) {
+            const parentBtn = document.createElement('button');
+            parentBtn.className = 'link-button parent-button';
+            const parentTitle = hasParent.title || 'Untitled';
+            parentBtn.textContent = `PARENT: ${parentTitle}`;
+            parentBtn.style.backgroundColor = '#90EE90'; // Light green
+            parentBtn.style.borderColor = '#228B22'; // Forest green
+            parentBtn.style.color = '#333';
+            parentBtn.addEventListener('click', () => {
+                this.app.goToParentPassage(passage.id);
+            });
+            linkButtonsContainer.appendChild(parentBtn);
+        }
 
         // Extract links from content
         const linkRegex = /\[\[([^\]]+)\]\]/g;
@@ -147,7 +155,43 @@ const Editor = {
         links.forEach(link => {
             const linkBtn = document.createElement('button');
             linkBtn.className = 'link-button';
-            linkBtn.textContent = `Link: ${link.display}`;
+
+            // Check if this is a LOOP or JUMP link
+            const currentPassageId = passage.id;
+            const targetPassage = Array.from(this.app.state.passages.values()).find(p => p.title === link.target);
+
+            if (targetPassage) {
+                // Check if it's a LOOP link (backward link)
+                const isLoop = this.app.state.loopPassages &&
+                    Array.from(this.app.state.loopPassages.values()).some(loop =>
+                        loop.fromId === currentPassageId && loop.toId === targetPassage.id
+                    );
+
+                // Check if it's a JUMP link (cross-lane link)
+                const isJump = this.app.state.jumpPassages &&
+                    Array.from(this.app.state.jumpPassages.values()).some(jump =>
+                        jump.fromId === currentPassageId && jump.toId === targetPassage.id
+                    );
+
+                if (isLoop) {
+                    linkBtn.textContent = `LOOP: ${link.display}`;
+                    linkBtn.classList.add('loop-button');
+                    linkBtn.style.backgroundColor = '#FFFACD'; // Pale yellow like sticky note
+                    linkBtn.style.borderColor = '#FFD700';
+                    linkBtn.style.color = '#333';
+                } else if (isJump) {
+                    linkBtn.textContent = `JUMP: ${link.display}`;
+                    linkBtn.classList.add('jump-button');
+                    linkBtn.style.backgroundColor = '#FFD4A3'; // Peach/Light orange like JUMP sticky
+                    linkBtn.style.borderColor = '#FF9500'; // Orange border
+                    linkBtn.style.color = '#333';
+                } else {
+                    linkBtn.textContent = `LINK: ${link.display}`;
+                }
+            } else {
+                linkBtn.textContent = `LINK: ${link.display}`;
+            }
+
             linkBtn.addEventListener('click', () => {
                 this.navigateToPassage(link.target);
             });
@@ -189,7 +233,7 @@ const Editor = {
             }, 0);
             this.open(targetPassage);
         } else {
-            console.warn('Passage not found:', targetTitle);
+            // Passage not found - silent fail
         }
     },
 

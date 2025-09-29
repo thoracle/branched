@@ -289,12 +289,24 @@ body.dark-mode #goto-parent:disabled {
     background: #0056b3;
 }
 
+.parent-button:hover {
+    background: #7FDD7F !important; /* Slightly darker green on hover */
+}
+
 .dark-mode .link-button {
     background: #0056b3;
 }
 
 .dark-mode .link-button:hover {
     background: #004085;
+}
+
+.dark-mode .parent-button {
+    background: #6B8E6B !important; /* Darker green in dark mode */
+}
+
+.dark-mode .parent-button:hover {
+    background: #5A7D5A !important;
 }
 
 input:focus,

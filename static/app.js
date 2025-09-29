@@ -10,7 +10,6 @@ const App = {
         nextPassageId: 1,
         nextLaneId: 1,
         darkMode: false,
-        showCrossLaneLinks: false
     },
 
     colors: {
@@ -84,7 +83,7 @@ const App = {
     },
 
     init() {
-        console.log('BranchEd v1.0.6 - Spacing: PASSAGE_SPACING * 8');
+        console.log('BranchEd v1.3.0');
         this.canvas = document.getElementById('main-canvas');
         this.ctx = this.canvas.getContext('2d');
 
@@ -105,7 +104,6 @@ const App = {
         // Initialize cross-lane toggle button state
         const crossLaneBtn = document.getElementById('cross-lane-toggle');
         if (crossLaneBtn) {
-            crossLaneBtn.style.opacity = this.state.showCrossLaneLinks ? '1' : '0.5';
         }
     },
 
@@ -239,7 +237,6 @@ const App = {
         document.getElementById('export-btn').addEventListener('click', () => this.exportTwee());
         document.getElementById('clear-storage-btn').addEventListener('click', () => this.clearStorage());
         document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
-        document.getElementById('cross-lane-toggle').addEventListener('click', () => this.toggleCrossLaneLinks());
 
         // Load available projects on init
         this.loadProjectList();
@@ -400,7 +397,7 @@ const App = {
         }
 
         // Check JUMP passages (only if cross-lane links are hidden)
-        if (this.state.jumpPassages && !this.state.showCrossLaneLinks) {
+        if (this.state.jumpPassages) {
             for (const jumpPassage of this.state.jumpPassages.values()) {
                 // Check if the jump's lane is collapsed
                 const lane = this.state.lanes.find(l => l.id === jumpPassage.laneId);
@@ -625,6 +622,52 @@ const App = {
             }
         });
 
+        // Special handling for metadata lanes: hybrid approach
+        if (lane.isMetadata) {
+            // First, check if any metadata passages have links between them
+            const hasInternalLinks = lane.passages.some(passageId => {
+                const passage = this.state.passages.get(passageId);
+                if (!passage) return false;
+
+                // Check if this passage has links to other metadata passages
+                return this.state.links.some(link =>
+                    link.from === passageId &&
+                    lane.passages.includes(link.to)
+                );
+            });
+
+            // If there are no internal links, position side by side
+            if (!hasInternalLinks) {
+                let currentX = this.CONSTANTS.PASSAGE_PADDING;
+                const verticalSpacing = this.CONSTANTS.PASSAGE_HEIGHT + this.CONSTANTS.PASSAGE_SPACING;
+                let currentRow = 0;
+                let passagesInRow = 0;
+                const maxPerRow = 5; // Maximum passages per row
+
+                lane.passages.forEach(passageId => {
+                    const passage = this.state.passages.get(passageId);
+                    if (passage) {
+                        // Start new row if needed
+                        if (passagesInRow >= maxPerRow) {
+                            currentRow++;
+                            currentX = this.CONSTANTS.PASSAGE_PADDING;
+                            passagesInRow = 0;
+                        }
+
+                        passage.x = currentX;
+                        passage.relativeY = this.CONSTANTS.PASSAGE_PADDING + (currentRow * verticalSpacing);
+                        passage.y = baseY + passage.relativeY;
+
+                        currentX += this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 2;
+                        passagesInRow++;
+                    }
+                });
+
+                return; // Skip the normal depth-based positioning
+            }
+            // If there are internal links, fall through to normal depth-based positioning
+        }
+
         // Position passages based on their relationships
         const positioned = new Set();
         const passageGraph = this.buildPassageGraph(lane);
@@ -643,27 +686,7 @@ const App = {
         const bottomCrossLaneDescendants = new Set();
         const topCrossLaneDescendants = new Set();
 
-        // Only consider cross-lane relationships if the toggle is ON
-        if (this.state.showCrossLaneLinks) {
-            // Mark passages that have cross-lane parents from below/above
-            for (const [passageId, depth] of depths.entries()) {
-                const crossLaneParents = this.findCrossLaneParents(passageId, lane);
-                if (crossLaneParents.length > 0) {
-                    const parent = this.state.passages.get(crossLaneParents[0]);
-                    if (parent) {
-                        const parentLaneIndex = this.state.lanes.findIndex(l => l.id === parent.laneId);
-                        const currentLaneIndex = this.state.lanes.findIndex(l => l.id === lane.id);
-                        if (parentLaneIndex > currentLaneIndex) {
-                            // Parent is below - mark as bottom root
-                            bottomCrossLaneRoots.add(passageId);
-                        } else if (parentLaneIndex < currentLaneIndex) {
-                            // Parent is above - mark as top root
-                            topCrossLaneRoots.add(passageId);
-                        }
-                    }
-                }
-            }
-        }
+        // Cross-lane links are now always hidden, skip this block
 
         // Now find all descendants of cross-lane roots to exclude them from normal positioning
         const markDescendants = (rootId, targetSet, visited = new Set()) => {
@@ -777,7 +800,6 @@ const App = {
             // Calculate X position for this depth
             const currentX = this.CONSTANTS.PASSAGE_PADDING +
                            (depth * (this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING * 8));
-            console.log(`Depth ${depth}: X position = ${currentX} (spacing = ${this.CONSTANTS.PASSAGE_SPACING * 8})`);
 
             // Exclude cross-lane roots AND their descendants
             const passagesAtDepth = depthGroups[depth].filter(id =>
@@ -793,7 +815,7 @@ const App = {
                 let parents = this.findParentsInLane(passageId, lane);
 
                 // If no parents in this lane, check for cross-lane parents (only if toggle is ON)
-                if (parents.length === 0 && this.state.showCrossLaneLinks) {
+                if (parents.length === 0) {
                     parents = this.findCrossLaneParents(passageId, lane);
                 }
 
@@ -1085,7 +1107,7 @@ const App = {
             }
         }
 
-        if (this.state.jumpPassages && !this.state.showCrossLaneLinks) {
+        if (this.state.jumpPassages) {
             for (const jumpPassage of this.state.jumpPassages.values()) {
                 if (jumpPassage.laneId === lane.id) {
                     // If there's already a LOOP for this passage, position JUMP below it
@@ -1125,51 +1147,247 @@ const App = {
 
     calculatePassageDepths(lane, graph) {
         const depths = new Map();
-        const calculating = new Set(); // Track passages being calculated to prevent infinite recursion
+        const visited = new Set();
 
-        // Calculate depth for each passage
+        // First pass: identify likely backward links by detecting cycles
+        const detectBackwardLinks = () => {
+            const backwardLinks = new Set();
+            const tempDepths = new Map();
+            const tempVisited = new Set();
+            const tempQueue = [];
+
+            // Find initial roots
+            lane.passages.forEach(passageId => {
+                const passage = this.state.passages.get(passageId);
+                if (!passage) return;
+
+                const isStart = passage.title === 'Start' || (passage.tags && passage.tags.includes('$start'));
+                if (isStart) {
+                    tempQueue.push(passageId);
+                    tempDepths.set(passageId, 0);
+                    tempVisited.add(passageId);
+                }
+            });
+
+            // If no Start found, use orphans as roots
+            if (tempQueue.length === 0) {
+                const hasIncoming = new Set();
+                this.state.links.forEach(link => {
+                    if (this.state.passages.get(link.to)?.laneId === lane.id) {
+                        hasIncoming.add(link.to);
+                    }
+                });
+                lane.passages.forEach(passageId => {
+                    if (!hasIncoming.has(passageId)) {
+                        tempQueue.push(passageId);
+                        tempDepths.set(passageId, 0);
+                        tempVisited.add(passageId);
+                    }
+                });
+            }
+
+            // BFS to assign temporary depths
+            while (tempQueue.length > 0) {
+                const current = tempQueue.shift();
+                const currentDepth = tempDepths.get(current) || 0;
+
+                // Check all outgoing links
+                this.state.links.forEach(link => {
+                    if (link.from !== current) return;
+
+                    const to = this.state.passages.get(link.to);
+                    if (!to || to.laneId !== lane.id) return;
+
+                    if (!tempVisited.has(link.to)) {
+                        tempDepths.set(link.to, currentDepth + 1);
+                        tempVisited.add(link.to);
+                        tempQueue.push(link.to);
+                    } else {
+                        // Already visited - check if this is a backward link
+                        const toDepth = tempDepths.get(link.to) || 0;
+                        if (toDepth <= currentDepth) {
+                            // This is a backward or same-level link
+                            backwardLinks.add(`${link.from}->${link.to}`);
+                        }
+                    }
+                });
+            }
+
+            return backwardLinks;
+        };
+
+        const backwardLinks = detectBackwardLinks();
+
+        // Build a forward-only graph (ignore backward links)
+        const buildForwardGraph = () => {
+            const forwardLinks = new Map(); // passageId -> Set of children
+            const incomingCount = new Map(); // passageId -> count of incoming edges
+
+            // Initialize
+            lane.passages.forEach(passageId => {
+                forwardLinks.set(passageId, new Set());
+                incomingCount.set(passageId, 0);
+            });
+
+            // Build the graph
+            this.state.links.forEach(link => {
+                // Skip backward links
+                if (backwardLinks.has(`${link.from}->${link.to}`)) {
+                    return;
+                }
+
+                const from = this.state.passages.get(link.from);
+                const to = this.state.passages.get(link.to);
+
+                if (!from || !to) return;
+
+                // Skip if both passages are not in this lane (unless cross-lane links are enabled)
+                const fromInLane = from.laneId === lane.id;
+                const toInLane = to.laneId === lane.id;
+
+                if (!fromInLane && !toInLane) return;
+                if (!fromInLane || !toInLane) return;
+
+                // Add to forward graph (only if from passage is in this lane)
+                if (fromInLane && forwardLinks.has(link.from)) {
+                    forwardLinks.get(link.from).add(link.to);
+                }
+
+                // Update incoming count (only if to passage is in this lane)
+                if (toInLane && incomingCount.has(link.to)) {
+                    incomingCount.set(link.to, incomingCount.get(link.to) + 1);
+                }
+            });
+
+            return { forwardLinks, incomingCount };
+        };
+
+        const { forwardLinks, incomingCount } = buildForwardGraph();
+
+
+        // Topological sort with BFS to assign depths
+        const queue = [];
+
+        // Find all root nodes (no incoming edges or Start passages)
+        let rootCount = 0;
+        lane.passages.forEach(passageId => {
+            const passage = this.state.passages.get(passageId);
+            if (!passage) return;
+
+            const isStart = passage.title === 'Start' || (passage.tags && passage.tags.includes('$start'));
+            const hasNoIncoming = incomingCount.get(passageId) === 0;
+
+            if (isStart || hasNoIncoming) {
+                queue.push(passageId);
+                depths.set(passageId, 0);
+                visited.add(passageId);
+                rootCount++;
+            }
+        });
+
+
+        // Process queue with safety limit
+        let iterations = 0;
+        const maxIterations = 1000;
+        const processing = new Set(); // Track what's currently being processed
+
+        while (queue.length > 0 && iterations < maxIterations) {
+            iterations++;
+            const current = queue.shift();
+            processing.delete(current); // No longer processing this node
+
+            const currentDepth = depths.get(current);
+
+            // Process all children
+            const children = forwardLinks.get(current) || new Set();
+            children.forEach(childId => {
+                // Skip if this would create a backward link (child depth would be less than parent)
+                const childPassage = this.state.passages.get(childId);
+                const currentPassage = this.state.passages.get(current);
+
+                if (!visited.has(childId)) {
+                    // First time visiting this node
+                    depths.set(childId, currentDepth + 1);
+                    visited.add(childId);
+
+                    // Only queue if not already processing
+                    if (!processing.has(childId)) {
+                        queue.push(childId);
+                        processing.add(childId);
+                    }
+                } else {
+                    // Already visited - only update depth if we found a longer path
+                    // BUT don't re-process to avoid infinite loops
+                    const existingDepth = depths.get(childId);
+                    if (currentDepth + 1 > existingDepth) {
+                        depths.set(childId, currentDepth + 1);
+                        // Don't re-queue! This prevents infinite loops
+                    }
+                }
+            });
+        }
+
+        if (iterations >= maxIterations) {
+            console.error(`Depth calculation stopped after ${maxIterations} iterations to prevent infinite loop`);
+        }
+
+        // Handle any remaining unvisited nodes (shouldn't happen in a well-formed graph)
+        lane.passages.forEach(passageId => {
+            if (!depths.has(passageId)) {
+                depths.set(passageId, 0);
+            }
+        });
+
+        // Debug logging
+        for (const [passageId, passage] of this.state.passages) {
+            if (passage.title === 'TestLinks' && passage.laneId === lane.id) {
+            }
+            if (passage.title === 'SimpleTarget' && passage.laneId === lane.id) {
+            }
+        }
+
+        return depths;
+    },
+
+    calculatePassageDepths_OLD(lane, graph) {
+        // Keep old implementation for reference
+        const depths = new Map();
+        const calculating = new Set();
+
         const calculateDepth = (passageId) => {
             if (depths.has(passageId)) return depths.get(passageId);
 
-            // Check for cycles
             if (calculating.has(passageId)) {
-                depths.set(passageId, 0); // Break cycle with depth 0
+                depths.set(passageId, 0);
                 return 0;
             }
 
             calculating.add(passageId);
 
-            // Check if this is a Start passage (has $start tag or title is "Start")
             const passage = this.state.passages.get(passageId);
+            const passageTitle = passage ? passage.title : 'unknown';
             if (passage && (passage.title === 'Start' || (passage.tags && passage.tags.includes('$start')))) {
-                // Start passages are always root nodes
                 depths.set(passageId, 0);
                 calculating.delete(passageId);
                 return 0;
             }
 
-            // Find all parents (both in-lane and cross-lane if enabled)
             const allParents = this.state.links
                 .filter(link => link.to === passageId)
                 .map(link => this.state.passages.get(link.from))
                 .filter(parent => {
                     if (!parent) return false;
-                    // Always include in-lane parents
                     if (parent.laneId === lane.id) return true;
-                    // Only include cross-lane parents if toggle is ON
-                    return this.state.showCrossLaneLinks;
+                    return false; // Cross-lane links always hidden
                 });
 
             if (allParents.length === 0) {
-                // No parents - this is a root
                 depths.set(passageId, 0);
                 calculating.delete(passageId);
                 return 0;
             }
 
-            // Get the maximum depth from all parents
             const parentDepths = allParents.map(parent => {
-                // Recursively calculate parent depth
                 const parentDepth = calculateDepth(parent.id);
                 return parentDepth;
             });
@@ -1177,6 +1395,11 @@ const App = {
             const depth = Math.max(...parentDepths) + 1;
             depths.set(passageId, depth);
             calculating.delete(passageId);
+
+            if (passageTitle === 'TestLinks' || passageTitle === 'SimpleTarget') {
+                const parentNames = allParents.map(p => p.title).join(', ');
+            }
+
             return depth;
         };
 
@@ -1497,7 +1720,8 @@ const App = {
         }
 
         // Create JUMP passages for cross-lane links (when toggle is OFF)
-        if (!this.state.showCrossLaneLinks) {
+        // Always skip cross-lane connections
+        {
             for (const link of crossLaneLinks) {
                 const fromPassage = this.state.passages.get(link.from);
                 const toPassage = this.state.passages.get(link.to);
@@ -1628,7 +1852,7 @@ const App = {
             // Render normal content
             Swimlanes.renderLanes(this.ctx, this.state.lanes, this.CONSTANTS, this.state.activeLaneId, (lane) => this.calculateLaneHeight(lane), colors, (lane) => this.getLaneImage(lane));
             Swimlanes.renderPassages(this.ctx, this.state.passages, this.state.selectedPassage, this.CONSTANTS, this.state.lanes, colors, this.state.links, this.state.loopPassages, this.state.jumpPassages);
-            Swimlanes.renderLinks(this.ctx, this.state.passages, this.state.links, this.CONSTANTS, this.state.lanes, colors, this.state.showCrossLaneLinks, this.state.loopPassages);
+            Swimlanes.renderLinks(this.ctx, this.state.passages, this.state.links, this.CONSTANTS, this.state.lanes, colors, false, this.state.loopPassages);
         }
     },
 
@@ -1683,23 +1907,6 @@ const App = {
         }
     },
 
-    toggleCrossLaneLinks() {
-        this.state.showCrossLaneLinks = !this.state.showCrossLaneLinks;
-
-        // Update button appearance
-        const btn = document.getElementById('cross-lane-toggle');
-        btn.style.opacity = this.state.showCrossLaneLinks ? '1' : '0.5';
-
-        // Re-extract links to update JUMP passages (they only show when toggle is OFF)
-        this.extractLinks();
-
-        // Recalculate positions since cross-lane relationships affect layout
-        this.updateAllLanePositions();
-
-        // Re-render to show/hide cross-lane links and new positions
-        this.render();
-        this.saveToStorage();
-    },
 
     toggleTheme() {
         this.state.darkMode = !this.state.darkMode;
@@ -1789,7 +1996,6 @@ const App = {
                 this.saveToStorage();
 
                 this.showNotification(`Loaded project: ${gameData.config.title || gameData.config.game_name}`, 'success');
-                console.log(`Project loaded: ${gameData.config.title || gameData.config.game_name}`);
             } else {
                 // Story file not found on server
                 const storyFile = gameData.config.story_settings?.main_story_file;
@@ -1843,8 +2049,6 @@ Use Ctrl/Cmd+click to select multiple files`;
             document.title = `BranchEd - ${gameConfig.game_name}`;
         }
 
-        console.log(`Loading project: ${gameConfig.game_name}`);
-        console.log(`Available files:`, availableFiles.map(f => f.webkitRelativePath || f.name));
 
         // Get the story file name from config
         const storyFile = gameConfig.story_settings?.main_story_file;
@@ -1887,7 +2091,6 @@ Use Ctrl/Cmd+click to select multiple files`;
         };
 
         // Load story file first
-        console.log(`Loading story file: ${foundStoryFile.name}`);
         const storyReader = new FileReader();
         storyReader.onload = (e) => {
             this.parseTwee(e.target.result);
@@ -1898,16 +2101,12 @@ Use Ctrl/Cmd+click to select multiple files`;
                 this.saveToStorage();
 
                 // Show success
-                console.log(`✓ Project loaded: ${gameConfig.title || gameConfig.game_name}`);
-                console.log(`  Version: ${gameConfig.version}`);
-                console.log(`  Story: ${foundStoryFile.name}`);
 
                 const loadedDataFiles = Object.keys(dataFiles)
                     .filter(key => dataFiles[key])
                     .map(key => dataFiles[key].name);
 
                 if (loadedDataFiles.length > 0) {
-                    console.log(`  Data files: ${loadedDataFiles.join(', ')}`);
                 }
 
                 this.showNotification(`Project "${gameConfig.game_name}" loaded successfully`);
@@ -1948,16 +2147,12 @@ Use Ctrl/Cmd+click to select multiple files`;
                 this.saveToStorage();
 
                 // Show success
-                console.log(`✓ Project loaded: ${gameConfig.title || gameConfig.game_name}`);
-                console.log(`  Version: ${gameConfig.version}`);
-                console.log(`  Story: ${storyFile.name}`);
 
                 const loadedDataFiles = Object.keys(dataFiles)
                     .filter(key => dataFiles[key])
                     .map(key => dataFiles[key].name);
 
                 if (loadedDataFiles.length > 0) {
-                    console.log(`  Data files: ${loadedDataFiles.join(', ')}`);
                 }
 
                 this.showNotification(`Project "${gameConfig.game_name}" loaded successfully`);
@@ -1990,7 +2185,6 @@ Use Ctrl/Cmd+click to select multiple files`;
                 try {
                     const data = JSON.parse(e.target.result);
                     this.currentProjectConfig.projectData[type] = data;
-                    console.log(`✓ Loaded ${file.name}`);
                 } catch (error) {
                     console.error(`✗ Failed to parse ${file.name}:`, error.message);
                 }
@@ -2126,8 +2320,6 @@ Use Ctrl/Cmd+click to select multiple files`;
             // Extract just the filename from the path (e.g., "data/world_expanded.twee" -> "world_expanded.twee")
             const storyFileName = mainStoryFileName.split('/').pop();
 
-            console.log('Looking for story file:', storyFileName, 'from path:', mainStoryFileName);
-            console.log('Available files:', availableFiles.map(f => f.name));
 
             // Find the story file by matching the filename
             const storyFile = availableFiles.find(f => {
@@ -2149,8 +2341,6 @@ Use Ctrl/Cmd+click to select multiple files`;
                     this.render();
                     this.saveToStorage();
 
-                    console.log(`Project loaded: ${gameConfig.title || gameConfig.game_name || 'Unknown'}`);
-                    console.log(`Story file: ${storyFileName}`);
                 };
                 reader.readAsText(storyFile);
                 return;
@@ -2197,7 +2387,6 @@ Use Ctrl/Cmd+click to select multiple files`;
                 this.render();
                 this.saveToStorage();
 
-                console.log(`Project loaded: ${this.currentProjectConfig?.title || this.currentProjectConfig?.game_name || 'Unknown'}`);
             };
             reader.readAsText(file);
         };

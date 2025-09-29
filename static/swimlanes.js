@@ -419,12 +419,12 @@ const Swimlanes = {
                     ctx.setLineDash([]); // Reset dash
                 }
 
-                // Draw pale yellow sticky note style (matching LOOP sticky)
-                ctx.fillStyle = '#FFFACD'; // LemonChiffon - classic sticky note yellow
+                // Draw orange sticky note style for JUMP
+                ctx.fillStyle = '#FFD4A3'; // Peach/Light orange - distinct from yellow LOOP
                 ctx.fillRect(jumpPassage.x, jumpPassage.y, constants.STICKY_WIDTH, constants.STICKY_HEIGHT);
 
-                // Draw subtle border
-                ctx.strokeStyle = '#F0E68C'; // Khaki border - subtle
+                // Draw subtle orange border
+                ctx.strokeStyle = '#FF9500'; // Orange border
                 ctx.lineWidth = 1;
                 ctx.strokeRect(jumpPassage.x, jumpPassage.y, constants.STICKY_WIDTH, constants.STICKY_HEIGHT);
 
@@ -484,6 +484,7 @@ const Swimlanes = {
     },
 
     renderLinks(ctx, passages, links, constants, lanes, colors, showCrossLaneLinks = false, loopPassages) {
+        // showCrossLaneLinks parameter kept for compatibility but always treated as false
         // Build set of backward links that have LOOP passages
         const backwardLinkSet = new Set();
         if (loopPassages) {
@@ -513,8 +514,8 @@ const Swimlanes = {
             // Check if this is a cross-lane connection
             const isCrossLane = fromPassage.laneId !== toPassage.laneId;
 
-            // Skip cross-lane links if toggle is off
-            if (isCrossLane && !showCrossLaneLinks) return;
+            // Always skip cross-lane links (handled by sticky notes)
+            if (isCrossLane) return;
 
             // Determine if this is a backward link (right to left)
             const isBackwardLink = fromPassage.x > toPassage.x;
