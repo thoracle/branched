@@ -189,13 +189,19 @@ const Editor = {
         const lines = textarea.value.split('\n');
         let textPos = 0;
 
-        for (let i = 0; i < row && i < lines.length; i++) {
+        // Ensure row is within bounds
+        const validRow = Math.min(row, lines.length - 1);
+        if (validRow < 0) {
+            textarea.style.cursor = 'text';
+            return;
+        }
+
+        for (let i = 0; i < validRow; i++) {
             textPos += lines[i].length + 1; // +1 for newline
         }
 
-        if (row < lines.length) {
-            textPos += Math.min(col, lines[row].length);
-        }
+        // Add column position, ensuring it's within the line length
+        textPos += Math.min(col, lines[validRow].length);
 
         // Check if this position is within a link
         let overLink = false;

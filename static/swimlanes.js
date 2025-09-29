@@ -8,7 +8,13 @@ const Swimlanes = {
             const isCollapsed = lane.collapsed || false;
 
             // Draw lane background
-            if (isActive) {
+            if (lane.isOrphanage) {
+                // Slightly red-tinted background for Orphanage lane
+                ctx.fillStyle = isCollapsed ? '#ffe8e8' : '#fff0f0';
+                if (colors.laneBackground === '#2a2a2a') { // dark mode
+                    ctx.fillStyle = isCollapsed ? '#3a2020' : '#402020';
+                }
+            } else if (isActive) {
                 ctx.fillStyle = colors.laneBackgroundActive;
             } else if (isCollapsed) {
                 ctx.fillStyle = lane.isMetadata ? colors.laneBackgroundCollapsedMeta : colors.laneBackgroundCollapsed;
@@ -26,7 +32,10 @@ const Swimlanes = {
             ctx.stroke();
 
             // Draw header background
-            if (isActive) {
+            if (lane.isOrphanage) {
+                // Red background for Orphanage lane (like the Delete button)
+                ctx.fillStyle = '#dc3545';
+            } else if (isActive) {
                 ctx.fillStyle = colors.headerBackgroundActive;
             } else {
                 ctx.fillStyle = lane.isMetadata ? colors.headerBackgroundMeta : colors.headerBackground;

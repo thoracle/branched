@@ -501,6 +501,11 @@ const App = {
     },
 
     updatePassagePositions(lane) {
+        // Simple layout algorithm:
+        // 1. Place parents at their depth column
+        // 2. First child goes to the right at parent's Y level
+        // 3. Additional children stack vertically below the first child
+
         // Calculate lane's Y position based on previous lanes' heights
         let laneY = 0;
         for (let i = 0; i < this.state.lanes.length; i++) {
@@ -520,10 +525,56 @@ const App = {
             }
         });
 
-        // Position passages based on their relationships
-        const positioned = new Set();
-        const passageGraph = this.buildPassageGraph(lane);
-        const depths = this.calculatePassageDepths(lane, passageGraph);
+        // Build parent-child relationships for this lane
+        const childrenMap = new Map(); // parent -> [children]
+        const parentsMap = new Map(); // child -> [parents]
+        const roots = new Set(lane.passages); // Start with all, remove those with parents
+
+        // Build relationship maps
+        this.state.links.forEach(link => {
+            const fromPassage = this.state.passages.get(link.from);
+            const toPassage = this.state.passages.get(link.to);
+
+            // Only consider links within this lane
+            if (fromPassage?.laneId === lane.id && toPassage?.laneId === lane.id) {
+                // Add to children map
+                if (!childrenMap.has(link.from)) {
+                    childrenMap.set(link.from, []);
+                }
+                childrenMap.get(link.from).push(link.to);
+
+                // Add to parents map
+                if (!parentsMap.has(link.to)) {
+                    parentsMap.set(link.to, []);
+                }
+                parentsMap.get(link.to).push(link.from);
+
+                // Remove from roots since it has a parent
+                roots.delete(link.to);
+            }
+        });
+
+        // Calculate depth for each passage
+        const depths = new Map();
+        const calculateDepth = (passageId, visited = new Set()) => {
+            if (depths.has(passageId)) return depths.get(passageId);
+            if (visited.has(passageId)) return 0; // Cycle detection
+            visited.add(passageId);
+
+            const parents = parentsMap.get(passageId) || [];
+            if (parents.length === 0) {
+                depths.set(passageId, 0);
+                return 0;
+            }
+
+            const parentDepths = parents.map(p => calculateDepth(p, new Set(visited)));
+            const depth = Math.max(...parentDepths) + 1;
+            depths.set(passageId, depth);
+            return depth;
+        };
+
+        // Calculate depths for all passages
+        lane.passages.forEach(passageId => calculateDepth(passageId));
 
         // Group passages by depth
         const depthGroups = {};
@@ -532,11 +583,9 @@ const App = {
             depthGroups[depth].push(passageId);
         }
 
-        // First, identify direct cross-lane passages and their descendants
-        const bottomCrossLaneRoots = new Set();
-        const topCrossLaneRoots = new Set();
-        const bottomCrossLaneDescendants = new Set();
-        const topCrossLaneDescendants = new Set();
+        // Simple positioning algorithm
+        const positioned = new Set();
+        const sortedDepths = Object.keys(depthGroups).sort((a, b) => a - b);
 
         // Mark passages that have cross-lane parents from below/above
         for (const [passageId, depth] of depths.entries()) {
@@ -1273,9 +1322,6 @@ const App = {
                 }
             }
         }
-
-        // Update orphanage after extracting links
-        this.createOrphanageIfNeeded();
     },
 
     autoCreateLinkedPassages(sourcePassage) {
@@ -1955,62 +2001,8 @@ Use Ctrl/Cmd+click to select multiple files`;
         fileInput.click();
     },
 
-    createOrphanageIfNeeded() {
-        // Find orphan passages (no incoming or outgoing links)
-        const orphanPassages = [];
-        for (const passage of this.state.passages.values()) {
-            const hasIncoming = this.state.links.some(l => l.to === passage.id);
-            const hasOutgoing = this.state.links.some(l => l.from === passage.id);
-            if (!hasIncoming && !hasOutgoing) {
-                orphanPassages.push(passage);
-            }
-        }
-
-        // If we have orphans, create or update the Orphanage lane
-        if (orphanPassages.length > 0) {
-            let orphanageLane = this.state.lanes.find(l => l.isOrphanage);
-
-            if (!orphanageLane) {
-                orphanageLane = {
-                    id: 'orphanage',
-                    name: 'Orphanage',
-                    isOrphanage: true,
-                    passages: [],
-                    collapsed: false
-                };
-                // Insert at the beginning (before metadata)
-                this.state.lanes.unshift(orphanageLane);
-            }
-
-            // Move orphan passages to the Orphanage lane
-            orphanPassages.forEach(passage => {
-                // Remove from current lane
-                const currentLane = this.state.lanes.find(l => l.id === passage.laneId);
-                if (currentLane) {
-                    const index = currentLane.passages.indexOf(passage.id);
-                    if (index > -1) {
-                        currentLane.passages.splice(index, 1);
-                    }
-                }
-
-                // Add to Orphanage lane
-                passage.laneId = orphanageLane.id;
-                if (!orphanageLane.passages.includes(passage.id)) {
-                    orphanageLane.passages.push(passage.id);
-                }
-            });
-        } else {
-            // Remove Orphanage lane if no orphans
-            const orphanageIndex = this.state.lanes.findIndex(l => l.isOrphanage);
-            if (orphanageIndex > -1) {
-                this.state.lanes.splice(orphanageIndex, 1);
-            }
-        }
-    },
-
     parseTwee(content) {
         this.state.passages.clear();
-        // Start with just metadata lane, orphanage will be added if needed
         this.state.lanes = [
             { id: 'metadata', name: 'Metadata', isMetadata: true, passages: [], collapsed: false }
         ];
@@ -2049,7 +2041,7 @@ Use Ctrl/Cmd+click to select multiple files`;
                 }
             });
 
-            // Determine if it's metadata - check for $metadata tag
+            // Determine if it's metadata by checking for $metadata tag
             const isMetadata = passageTags.includes('$metadata');
 
             let lane = isMetadata ? this.state.lanes[0] : null;
@@ -2091,9 +2083,6 @@ Use Ctrl/Cmd+click to select multiple files`;
         for (const passage of this.state.passages.values()) {
             this.autoCreateLinkedPassages(passage);
         }
-
-        // Create Orphanage lane if there are orphan passages
-        this.createOrphanageIfNeeded();
 
         this.updateAllLanePositions();
     },
