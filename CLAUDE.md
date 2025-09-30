@@ -8,7 +8,7 @@ BranchEd MVP - A visual editor for Twee stories (interactive fiction format). Th
 
 ## Current Project Status
 
-**Planning Phase** - The codebase contains specifications but no implementation yet. Begin implementation based on `/docs/MVP_SPECIFICATION.md`.
+**Implemented and Working** - BranchEd v1.3.1 is fully functional with advanced features beyond MVP.
 
 ## Architecture
 
@@ -41,16 +41,31 @@ BranchEd MVP - A visual editor for Twee stories (interactive fiction format). Th
 
 ## Development Commands
 
-Since the project is not yet implemented, here are the planned commands:
-
 ```bash
-# Frontend development (once implemented)
-python -m http.server 8000  # Serve static files for development
+# Start the server
+./branched
 
-# Backend development (if implementing Flask backend)
-pip install flask
-python backend/app.py  # Run Flask server
+# Run tests
+./run-tests
+
+# The app will be available at http://localhost:8000/
 ```
+
+## IMPORTANT DEVELOPMENT NOTES
+
+### VERSION MANAGEMENT
+**ALWAYS increment the version number when making changes!**
+- Location: `/static/app.js` line ~86
+- Format: `console.log('BranchEd vX.Y.Z');`
+- Current version: 1.3.1
+- Increment patch (Z) for bug fixes
+- Increment minor (Y) for new features
+- Increment major (X) for breaking changes
+
+### Testing
+- Run `./run-tests` after every change
+- Verify all 44 tests pass before considering work complete
+- Tests check for: file structure, API endpoints, JS syntax, CSS validity, twee files
 
 ## Key Implementation Guidelines
 

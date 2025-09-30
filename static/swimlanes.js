@@ -174,7 +174,9 @@ const Swimlanes = {
 
             // Different border style for orphan passages
             if (isOrphan) {
-                ctx.strokeStyle = colors.passageOrphanBorder || '#ff0000';  // Red border for orphans
+                // Check if this is a metadata passage (expected to have no parents)
+                const isMetadata = lane && lane.isMetadata;
+                ctx.strokeStyle = isMetadata ? '#0066ff' : (colors.passageOrphanBorder || '#ff0000');  // Blue for metadata orphans, red for regular orphans
                 ctx.lineWidth = 2;
                 ctx.setLineDash([5, 3]);  // Dashed line
             } else if (isSelected) {
@@ -305,6 +307,9 @@ const Swimlanes = {
                 // Skip if loop passage hasn't been positioned yet (x and y are still 0)
                 if (loopPassage.x === 0 && loopPassage.y === 0) continue;
 
+                // Skip if this sticky is not visible (beyond the first 3 in stack)
+                if (loopPassage.isVisible === false) continue;
+
                 // First, draw connector from source passage to LOOP sticky
                 const sourcePassage = passages.get(loopPassage.fromId);
                 if (sourcePassage) {
@@ -365,6 +370,14 @@ const Swimlanes = {
                 const targetText = this.truncateText(ctx, loopPassage.toTitle, constants.STICKY_WIDTH - 10);
                 ctx.fillText(targetText, loopPassage.x + constants.STICKY_WIDTH / 2, loopPassage.y + 25);
 
+                // If this is the last visible sticky in a stack, show count
+                if (loopPassage.stackIndex === 2 && loopPassage.totalInStack > 3) {
+                    ctx.fillStyle = '#FF6B6B'; // Red for count
+                    ctx.font = 'bold 10px sans-serif';
+                    const moreCount = loopPassage.totalInStack - 3;
+                    ctx.fillText(`+${moreCount} more`, loopPassage.x + constants.STICKY_WIDTH / 2, loopPassage.y + 45);
+                }
+
                 // Reset text alignment
                 ctx.textAlign = 'left';
                 ctx.textBaseline = 'alphabetic';
@@ -380,6 +393,9 @@ const Swimlanes = {
 
                 // Skip if jump passage hasn't been positioned yet (x and y are still 0)
                 if (jumpPassage.x === 0 && jumpPassage.y === 0) continue;
+
+                // Skip if this sticky is not visible (beyond the first 3 in stack)
+                if (jumpPassage.isVisible === false) continue;
 
                 // First, draw connector from source passage to JUMP sticky
                 const sourcePassage = passages.get(jumpPassage.fromId);
@@ -440,6 +456,14 @@ const Swimlanes = {
                 ctx.fillStyle = '#444444'; // Dark gray
                 const targetText = this.truncateText(ctx, jumpPassage.toTitle, constants.STICKY_WIDTH - 10);
                 ctx.fillText(targetText, jumpPassage.x + constants.STICKY_WIDTH / 2, jumpPassage.y + 25);
+
+                // If this is the last visible sticky in a stack, show count
+                if (jumpPassage.stackIndex === 2 && jumpPassage.totalInStack > 3) {
+                    ctx.fillStyle = '#FF6B6B'; // Red for count
+                    ctx.font = 'bold 10px sans-serif';
+                    const moreCount = jumpPassage.totalInStack - 3;
+                    ctx.fillText(`+${moreCount} more`, jumpPassage.x + constants.STICKY_WIDTH / 2, jumpPassage.y + 45);
+                }
 
                 // Reset text alignment
                 ctx.textAlign = 'left';

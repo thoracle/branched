@@ -83,7 +83,7 @@ const App = {
     },
 
     init() {
-        console.log('BranchEd v1.3.0');
+        console.log('BranchEd v1.3.4');
         this.canvas = document.getElementById('main-canvas');
         this.ctx = this.canvas.getContext('2d');
 
@@ -1096,49 +1096,60 @@ const App = {
         });
 
         // Position LOOP and JUMP passages to the right of their source passages
-        const stickyNotes = new Map();
+        // Group sticky notes by their source passage from the start
+        const stickyBySource = new Map();
 
-        // Collect all sticky notes for this lane
+        // Collect all LOOP sticky notes for this lane
         if (this.state.loopPassages) {
             for (const loopPassage of this.state.loopPassages.values()) {
                 if (loopPassage.laneId === lane.id) {
-                    stickyNotes.set(loopPassage.fromId, loopPassage);
+                    if (!stickyBySource.has(loopPassage.fromId)) {
+                        stickyBySource.set(loopPassage.fromId, []);
+                    }
+                    stickyBySource.get(loopPassage.fromId).push(loopPassage);
                 }
             }
         }
 
+        // Collect all JUMP sticky notes for this lane
         if (this.state.jumpPassages) {
             for (const jumpPassage of this.state.jumpPassages.values()) {
                 if (jumpPassage.laneId === lane.id) {
-                    // If there's already a LOOP for this passage, position JUMP below it
-                    const existingSticky = stickyNotes.get(jumpPassage.fromId);
-                    if (existingSticky) {
-                        jumpPassage.offsetY = this.CONSTANTS.PASSAGE_HEIGHT * 0.7 + this.CONSTANTS.VERTICAL_SPACING;
+                    if (!stickyBySource.has(jumpPassage.fromId)) {
+                        stickyBySource.set(jumpPassage.fromId, []);
                     }
-                    stickyNotes.set(`jump_${jumpPassage.fromId}`, jumpPassage);
+                    stickyBySource.get(jumpPassage.fromId).push(jumpPassage);
                 }
             }
         }
 
-        // Position all sticky notes (simplified - no collision detection needed)
-        if (stickyNotes.size > 0) {
-            // Group sticky notes by their source passage
-            const stickyBySource = new Map();
-            for (const sticky of stickyNotes.values()) {
-                if (!stickyBySource.has(sticky.fromId)) {
-                    stickyBySource.set(sticky.fromId, []);
-                }
-                stickyBySource.get(sticky.fromId).push(sticky);
-            }
-
+        // Position all sticky notes
+        if (stickyBySource.size > 0) {
             // Position sticky notes for each source passage
             for (const [sourceId, stickies] of stickyBySource) {
                 const sourcePassage = this.state.passages.get(sourceId);
                 if (sourcePassage) {
-                    // Position stickies to the right of source passage, stacking vertically if multiple
+                    // Sort stickies to ensure consistent ordering: loops first, then jumps
+                    stickies.sort((a, b) => {
+                        if (a.type === 'loop' && b.type === 'jump') return -1;
+                        if (a.type === 'jump' && b.type === 'loop') return 1;
+                        return 0;
+                    });
+
+                    // Create a stacked effect when there are many stickies
+                    const maxVisibleStickies = 3;
+                    const stackOffset = 8; // Small offset for stack effect
+
                     stickies.forEach((sticky, index) => {
-                        sticky.x = sourcePassage.x + this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING;
-                        sticky.y = sourcePassage.y + (index * (this.CONSTANTS.STICKY_HEIGHT + 10));
+                        // Position stickies with a small stack offset
+                        const visibleIndex = Math.min(index, maxVisibleStickies - 1);
+                        sticky.x = sourcePassage.x + this.CONSTANTS.PASSAGE_WIDTH + this.CONSTANTS.PASSAGE_SPACING + (visibleIndex * stackOffset);
+                        sticky.y = sourcePassage.y + (visibleIndex * stackOffset);
+
+                        // Mark if this sticky is part of a stack
+                        sticky.stackIndex = index;
+                        sticky.totalInStack = stickies.length;
+                        sticky.isVisible = index < maxVisibleStickies;
                     });
                 }
             }
@@ -1709,6 +1720,7 @@ const App = {
                 // Store loop passage info (will be rendered specially)
                 this.state.loopPassages.set(loopId, {
                     id: loopId,
+                    type: 'loop',
                     fromId: link.from,
                     toId: link.to,
                     toTitle: toPassage.title,
@@ -1734,6 +1746,7 @@ const App = {
                     // Store jump passage info (will be rendered specially)
                     this.state.jumpPassages.set(jumpId, {
                         id: jumpId,
+                        type: 'jump',
                         fromId: link.from,
                         toId: link.to,
                         toTitle: toPassage.title,
@@ -1902,6 +1915,9 @@ const App = {
             this.render();
             this.saveToStorage();
 
+            // Reset project dropdown
+            this.resetProjectDropdownSelection();
+
             // Show notification
             this.showNotification('All local data cleared successfully');
         }
@@ -1960,12 +1976,32 @@ const App = {
         }
     },
 
+    updateProjectDropdownSelection(projectName) {
+        const selector = document.getElementById('project-selector');
+        // Update the first option (empty value) to show the selected project
+        const firstOption = selector.querySelector('option[value=""]');
+        if (firstOption) {
+            firstOption.textContent = `📁 ${projectName}`;
+        }
+        // Set the dropdown value to empty to show the updated first option
+        selector.value = '';
+    },
+
+    resetProjectDropdownSelection() {
+        const selector = document.getElementById('project-selector');
+        // Reset the first option to the default text
+        const firstOption = selector.querySelector('option[value=""]');
+        if (firstOption) {
+            firstOption.textContent = '📁 Select Project...';
+        }
+        // Set the dropdown value to empty
+        selector.value = '';
+    },
+
     handleProjectSelection(event) {
         const gameId = event.target.value;
         if (gameId) {
             this.loadProjectFromServer(gameId);
-            // Reset the dropdown
-            event.target.value = '';
         }
     },
 
@@ -1996,6 +2032,9 @@ const App = {
                 this.saveToStorage();
 
                 this.showNotification(`Loaded project: ${gameData.config.title || gameData.config.game_name}`, 'success');
+
+                // Update dropdown to show selected project
+                this.updateProjectDropdownSelection(gameData.config.title || gameData.config.game_name);
             } else {
                 // Story file not found on server
                 const storyFile = gameData.config.story_settings?.main_story_file;
