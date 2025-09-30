@@ -83,7 +83,7 @@ const App = {
     },
 
     init() {
-        console.log('BranchEd v1.3.4');
+        console.log('BranchEd v1.3.5');
         this.canvas = document.getElementById('main-canvas');
         this.ctx = this.canvas.getContext('2d');
 
@@ -271,12 +271,23 @@ const App = {
             this.selectPassage(clickedPassage);
             Editor.open(clickedPassage);
         } else {
-            const clickedLane = this.getLaneAtPosition(x, y);
-            if (clickedLane) {
-                this.selectLane(clickedLane);
+            // Check if clicked on a sticky note
+            const clickedSticky = this.getStickyAtPosition(x, y);
+            if (clickedSticky) {
+                // Open the editor for the source passage
+                const sourcePassage = this.state.passages.get(clickedSticky.fromId);
+                if (sourcePassage) {
+                    this.selectPassage(sourcePassage);
+                    Editor.open(sourcePassage);
+                }
+            } else {
+                const clickedLane = this.getLaneAtPosition(x, y);
+                if (clickedLane) {
+                    this.selectLane(clickedLane);
+                }
+                this.selectPassage(null);
+                Editor.close();
             }
-            this.selectPassage(null);
-            Editor.close();
         }
 
         this.render();
