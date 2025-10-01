@@ -10,6 +10,7 @@ const App = {
         nextPassageId: 1,
         nextLaneId: 1,
         darkMode: false,
+        stickyNotesVisible: true,
     },
 
     colors: {
@@ -82,8 +83,19 @@ const App = {
         TOGGLE_SIZE: 16
     },
 
+    async fetchVersion() {
+        try {
+            const response = await fetch('/api/version');
+            const data = await response.json();
+            console.log(`BranchEd v${data.version}`);
+        } catch (e) {
+            console.log('BranchEd (version unavailable)');
+        }
+    },
+
     init() {
-        console.log('BranchEd v1.3.5');
+        // Version will be fetched from server
+        this.fetchVersion();
         this.canvas = document.getElementById('main-canvas');
         this.ctx = this.canvas.getContext('2d');
 
@@ -236,6 +248,7 @@ const App = {
         document.getElementById('import-btn').addEventListener('click', () => this.importTwee());
         document.getElementById('export-btn').addEventListener('click', () => this.exportTwee());
         document.getElementById('clear-storage-btn').addEventListener('click', () => this.clearStorage());
+        document.getElementById('sticky-notes-toggle').addEventListener('click', () => this.toggleStickyNotes());
         document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
 
         // Load available projects on init
@@ -354,9 +367,8 @@ const App = {
                 this.selectPassage(targetPassage);
                 this.updateAllLanePositions();
                 this.render();
-                setTimeout(() => {
-                    this.centerOnPassage(targetPassage.id);
-                }, 0);
+                // Call centerOnPassage which now uses requestAnimationFrame internally
+                this.centerOnPassage(targetPassage);
             }
             return;
         }
@@ -524,9 +536,58 @@ const App = {
 
         this.state.lanes.push(lane);
         this.state.activeLaneId = lane.id;
+        this.sortLanes();
         this.updateAllLanePositions();
         this.render();
         this.saveToStorage();
+    },
+
+    naturalCompare(a, b) {
+        // Natural sorting that handles numeric parts correctly
+        // This will sort deck1, deck2, deck8, deck10, deck11 in the correct order
+        const ax = [];
+        const bx = [];
+
+        // Split strings into parts, converting numeric parts to numbers
+        a.replace(/(\d+)|(\D+)/g, function(_, num, str) {
+            ax.push([num || Infinity, str || ""]);
+        });
+        b.replace(/(\d+)|(\D+)/g, function(_, num, str) {
+            bx.push([num || Infinity, str || ""]);
+        });
+
+        // Compare each part
+        while (ax.length && bx.length) {
+            const an = ax.shift();
+            const bn = bx.shift();
+            const nn = (an[0] - bn[0]) || an[1].localeCompare(bn[1]);
+            if (nn) return nn;
+        }
+
+        return ax.length - bx.length;
+    },
+
+    sortLanes() {
+        // Sort lanes in the desired order: Orphanage, Metadata, Main, then $lane tags alphabetically
+        this.state.lanes.sort((a, b) => {
+            // Orphanage comes first
+            if (a.isOrphanage && !b.isOrphanage) return -1;
+            if (!a.isOrphanage && b.isOrphanage) return 1;
+
+            // Then Metadata
+            if (a.isMetadata && !b.isMetadata) return -1;
+            if (!a.isMetadata && b.isMetadata) return 1;
+
+            // Both orphanage or both metadata, maintain relative order
+            if ((a.isOrphanage && b.isOrphanage) || (a.isMetadata && b.isMetadata)) return 0;
+
+            // Then Main lane (usually has id 'main')
+            if (a.name === 'Main' && b.name !== 'Main') return -1;
+            if (a.name !== 'Main' && b.name === 'Main') return 1;
+
+            // Everything else (custom $lane tags) sorted with natural ordering for numbers
+            return this.naturalCompare(a.name, b.name);
+        });
     },
 
     addPassage() {
@@ -1510,30 +1571,55 @@ const App = {
     centerOnPassage(passage) {
         if (!passage) return;
 
-        // Calculate the passage's absolute position on canvas
-        let laneY = 0;
-        for (const lane of this.state.lanes) {
-            if (lane.id === passage.laneId) {
-                break;
-            }
-            laneY += this.calculateLaneHeight(lane);
+        // First ensure the lane is expanded if it's collapsed
+        const targetLane = this.state.lanes.find(l => l.id === passage.laneId);
+        if (targetLane && targetLane.collapsed) {
+            targetLane.collapsed = false;
+            this.updateAllLanePositions();
+            this.render();
         }
 
-        const passageX = passage.x;
-        const passageY = laneY + this.CONSTANTS.HEADER_HEIGHT + passage.y;
+        // Use requestAnimationFrame to ensure DOM updates are complete
+        requestAnimationFrame(() => {
+            // Calculate the passage's absolute position on canvas
+            let laneY = 0;
+            for (const lane of this.state.lanes) {
+                if (lane.id === passage.laneId) {
+                    // Found the target lane
+                    break;
+                }
+                laneY += this.calculateLaneHeight(lane);
+            }
 
-        // Get container dimensions
-        const container = document.getElementById('canvas-container');
-        const containerWidth = container.clientWidth;
-        const containerHeight = container.clientHeight;
+            // The passage.y is already the absolute Y position on the canvas
+            // It already includes all lane offsets, so we use it directly
+            const passageX = passage.x;
+            const passageY = passage.y;
 
-        // Calculate scroll position to center the passage
-        const scrollX = passageX + this.CONSTANTS.PASSAGE_WIDTH / 2 - containerWidth / 2;
-        const scrollY = passageY + this.CONSTANTS.PASSAGE_HEIGHT / 2 - containerHeight / 2;
+            // Get container dimensions
+            const container = document.getElementById('canvas-container');
+            const containerWidth = container.clientWidth;
+            const containerHeight = container.clientHeight;
 
-        // Scroll the container
-        container.scrollLeft = Math.max(0, scrollX);
-        container.scrollTop = Math.max(0, scrollY);
+            // Check if editor panel is open and adjust available width
+            const editorPanel = document.getElementById('editor-panel');
+            const isEditorOpen = editorPanel && !editorPanel.classList.contains('hidden');
+            const editorWidth = isEditorOpen ? 370 : 0; // 350px width + 20px margin
+            const availableWidth = containerWidth - editorWidth;
+
+            // Calculate scroll position to center the passage in available space
+            const targetX = passageX + this.CONSTANTS.PASSAGE_WIDTH / 2;
+            const targetY = passageY + this.CONSTANTS.PASSAGE_HEIGHT / 2;
+
+            // Center in the available left area (not covered by editor panel)
+            const scrollX = targetX - availableWidth / 2;
+            // Center positioning works better when passages have coordinates that might result in negative scroll
+            const scrollY = targetY - containerHeight / 2;
+
+            // Apply scroll with bounds checking
+            container.scrollLeft = Math.max(0, Math.min(scrollX, container.scrollWidth - containerWidth));
+            container.scrollTop = Math.max(0, Math.min(scrollY, container.scrollHeight - containerHeight));
+        });
     },
 
     getParentPassage(passageId) {
@@ -1560,11 +1646,10 @@ const App = {
             this.selectPassage(parent);
             this.updateAllLanePositions(); // Ensure positions are current
             this.render();
-            // Use setTimeout to ensure render completes before centering
-            setTimeout(() => {
-                this.centerOnPassage(parent);
-            }, 10);
+            // Open editor first, then center on the passage
             Editor.open(parent);
+            // Call centerOnPassage after opening editor to account for changed viewport
+            this.centerOnPassage(parent);
         }
     },
 
@@ -1875,8 +1960,13 @@ const App = {
         } else {
             // Render normal content
             Swimlanes.renderLanes(this.ctx, this.state.lanes, this.CONSTANTS, this.state.activeLaneId, (lane) => this.calculateLaneHeight(lane), colors, (lane) => this.getLaneImage(lane));
-            Swimlanes.renderPassages(this.ctx, this.state.passages, this.state.selectedPassage, this.CONSTANTS, this.state.lanes, colors, this.state.links, this.state.loopPassages, this.state.jumpPassages);
-            Swimlanes.renderLinks(this.ctx, this.state.passages, this.state.links, this.CONSTANTS, this.state.lanes, colors, false, this.state.loopPassages);
+
+            // Pass sticky notes visibility to the renderer
+            const loopPassages = this.state.stickyNotesVisible ? this.state.loopPassages : null;
+            const jumpPassages = this.state.stickyNotesVisible ? this.state.jumpPassages : null;
+
+            Swimlanes.renderPassages(this.ctx, this.state.passages, this.state.selectedPassage, this.CONSTANTS, this.state.lanes, colors, this.state.links, loopPassages, jumpPassages);
+            Swimlanes.renderLinks(this.ctx, this.state.passages, this.state.links, this.CONSTANTS, this.state.lanes, colors, false, this.state.stickyNotesVisible ? this.state.loopPassages : null, this.state.stickyNotesVisible);
         }
     },
 
@@ -1894,7 +1984,8 @@ const App = {
                 links: [],
                 activeLaneId: null,
                 selectedPassage: null,
-                darkMode: false
+                darkMode: false,
+                stickyNotesVisible: true
             };
 
             // Create default lanes
@@ -1944,6 +2035,18 @@ const App = {
 
         // Update body background and editor styles
         document.body.classList.toggle('dark-mode', this.state.darkMode);
+
+        this.render();
+        this.saveToStorage();
+    },
+
+    toggleStickyNotes() {
+        this.state.stickyNotesVisible = !this.state.stickyNotesVisible;
+
+        // Update button appearance
+        const btn = document.getElementById('sticky-notes-toggle');
+        btn.textContent = this.state.stickyNotesVisible ? '📝 Notes' : '📝̶ Notes';
+        btn.style.opacity = this.state.stickyNotesVisible ? '1' : '0.5';
 
         this.render();
         this.saveToStorage();
@@ -2491,8 +2594,9 @@ Use Ctrl/Cmd+click to select multiple files`;
                     passages: [],
                     collapsed: false
                 };
-                // Insert at the beginning (before metadata)
-                this.state.lanes.unshift(orphanageLane);
+                // Add orphanage lane and sort to ensure proper ordering
+                this.state.lanes.push(orphanageLane);
+                this.sortLanes();
             }
 
             // Move orphan passages to the Orphanage lane
@@ -2608,6 +2712,8 @@ Use Ctrl/Cmd+click to select multiple files`;
         // Create Orphanage lane if there are orphan passages
         this.createOrphanageIfNeeded();
 
+        // Sort lanes to ensure proper order after import
+        this.sortLanes();
         this.updateAllLanePositions();
     },
 
@@ -2677,6 +2783,7 @@ Use Ctrl/Cmd+click to select multiple files`;
             this.state.nextPassageId = data.nextPassageId || 1;
             this.state.nextLaneId = data.nextLaneId || 1;
             this.state.darkMode = data.darkMode || false;
+            this.state.stickyNotesVisible = data.stickyNotesVisible !== undefined ? data.stickyNotesVisible : true;
 
             // Apply theme
             if (this.state.darkMode) {
@@ -2686,9 +2793,19 @@ Use Ctrl/Cmd+click to select multiple files`;
                 if (themeBtn) themeBtn.textContent = '☀️';
             }
 
+            // Update sticky notes button
+            const stickyBtn = document.getElementById('sticky-notes-toggle');
+            if (stickyBtn) {
+                stickyBtn.textContent = this.state.stickyNotesVisible ? '📝 Notes' : '📝̶ Notes';
+                stickyBtn.style.opacity = this.state.stickyNotesVisible ? '1' : '0.5';
+            }
+
             // Rebuild links but DON'T call updateAllLanePositions here to avoid recursion
             this.state.links = [];
             this.extractLinks();
+
+            // Sort lanes to ensure proper order after loading
+            this.sortLanes();
         } catch (e) {
             console.error('Failed to load data:', e);
             // Clear corrupt data

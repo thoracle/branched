@@ -227,11 +227,10 @@ const Editor = {
             this.app.selectPassage(targetPassage);
             this.app.updateAllLanePositions(); // Ensure positions are current
             this.app.render();
-            // Use setTimeout to ensure render completes before centering
-            setTimeout(() => {
-                this.app.centerOnPassage(targetPassage.id);
-            }, 0);
+            // Open the editor first, then center on the passage
             this.open(targetPassage);
+            // Call centerOnPassage after opening editor to account for changed viewport
+            this.app.centerOnPassage(targetPassage);
         } else {
             // Passage not found - silent fail
         }

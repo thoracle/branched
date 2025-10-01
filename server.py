@@ -11,6 +11,9 @@ from pathlib import Path
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import urllib.parse
 
+# Version number
+VERSION = "1.4.4"
+
 class BranchEdHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         # Set the directory to serve from
@@ -33,6 +36,14 @@ class BranchEdHandler(SimpleHTTPRequestHandler):
             return
 
         # Handle API endpoints
+        if parsed_path.path == '/api/version':
+            # Return server version
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'version': VERSION}).encode())
+            return
+
         if parsed_path.path == '/api/games':
             self.send_games_list()
         elif parsed_path.path.startswith('/api/game/'):
@@ -131,7 +142,7 @@ def run_server(port=8000):
     signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
     signal.signal(signal.SIGTERM, signal_handler)  # Termination signal
 
-    print(f"BranchEd Server running on http://localhost:{port}")
+    print(f"BranchEd Server v{VERSION} running on http://localhost:{port}")
     print(f"Serving from: {Path(__file__).parent / 'static'}")
     print(f"Games directory: {Path(__file__).parent.parent / 'games'}")
     print("Press Ctrl+C to stop the server")

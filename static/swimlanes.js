@@ -507,7 +507,7 @@ const Swimlanes = {
         return bestFit + ellipsis;
     },
 
-    renderLinks(ctx, passages, links, constants, lanes, colors, showCrossLaneLinks = false, loopPassages) {
+    renderLinks(ctx, passages, links, constants, lanes, colors, showCrossLaneLinks = false, loopPassages, stickyNotesVisible = true) {
         // showCrossLaneLinks parameter kept for compatibility but always treated as false
         // Build set of backward links that have LOOP passages
         const backwardLinkSet = new Set();
@@ -543,6 +543,9 @@ const Swimlanes = {
 
             // Determine if this is a backward link (right to left)
             const isBackwardLink = fromPassage.x > toPassage.x;
+
+            // Skip backward links when sticky notes are disabled (they would normally be shown as LOOP sticky notes)
+            if (isBackwardLink && !stickyNotesVisible) return;
 
             // Set style based on connection type
             if (isCrossLane) {
