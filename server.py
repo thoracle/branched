@@ -12,7 +12,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 import urllib.parse
 
 # Version number
-VERSION = "1.5.10"
+VERSION = "1.5.11"
 
 class BranchEdHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
