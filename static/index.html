@@ -16,6 +16,7 @@
                 <button id="add-passage-btn">Add Passage</button>
                 <button id="toggle-panel-btn" title="Toggle Edit Panel">✏️ Edit</button>
                 <button id="sticky-notes-toggle" title="Toggle Sticky Notes">📝 Notes</button>
+                <button id="data-btn" title="Manage Story Variables">🗂️ Data</button>
             </div>
             <div class="toolbar-section">
                 <button id="search-btn" title="Search (Ctrl+K or Cmd+K)">🔍 Search</button>
@@ -86,6 +87,28 @@
         <input type="file" id="project-file-input" accept=".json" style="display: none;">
         <input type="file" id="project-folder-input" webkitdirectory directory multiple style="display: none;">
 
+
+        <!-- Variables Dialog -->
+        <div id="variables-overlay" class="variables-overlay hidden">
+            <div class="variables-modal">
+                <div class="variables-header">
+                    <h3>Story Variables</h3>
+                    <button id="close-variables" class="modal-close">×</button>
+                </div>
+                <div class="variables-body">
+                    <div class="variables-controls">
+                        <input type="text" id="variable-filter" placeholder="Filter variables..." class="variable-filter-input">
+                        <button id="add-variable-btn" class="btn-primary">+ Add Variable</button>
+                    </div>
+                    <div class="variables-list" id="variables-list">
+                        <!-- Variables will be dynamically added here -->
+                    </div>
+                </div>
+                <div class="variables-footer">
+                    <span class="variables-hint">Variables are used to evaluate conditional statements in passages</span>
+                </div>
+            </div>
+        </div>
 
         <!-- Search Overlay -->
         <div id="search-overlay" class="search-overlay hidden">

@@ -12,6 +12,7 @@ const App = {
         darkMode: false,
         stickyNotesVisible: true,
         panelEnabled: false,
+        storyVariables: new Map(), // Story variables for conditional evaluation
     },
 
     colors: {
@@ -246,6 +247,7 @@ const App = {
         document.getElementById('toggle-panel-btn').addEventListener('click', () => this.togglePanel());
         document.getElementById('add-lane-btn').addEventListener('click', () => this.addLane());
         document.getElementById('add-passage-btn').addEventListener('click', () => this.addPassage());
+        document.getElementById('data-btn').addEventListener('click', () => this.openVariablesDialog());
         document.getElementById('project-selector').addEventListener('change', (e) => this.handleProjectSelection(e));
         document.getElementById('import-btn').addEventListener('click', () => this.importTwee());
         document.getElementById('export-btn').addEventListener('click', () => this.exportTwee());
@@ -256,6 +258,7 @@ const App = {
         // Initialize Co-Author and Preview tabs
         this.initializeCoAuthor();
         this.initializePreview();
+        this.initializeVariables();
 
         // Load available projects on init
         this.loadProjectList();
@@ -2112,7 +2115,24 @@ const App = {
 
         if (this.state.panelEnabled) {
             // If enabling panel, open editor for selected passage or Editor.currentPassage
-            const passageToOpen = this.state.selectedPassage || Editor.currentPassage;
+            let passageToOpen = this.state.selectedPassage || Editor.currentPassage;
+
+            // If no passage selected, find the start passage
+            if (!passageToOpen) {
+                // First, look for a passage with $start tag
+                for (const passage of this.state.passages.values()) {
+                    if (passage.tags && passage.tags.includes('$start')) {
+                        passageToOpen = passage;
+                        break;
+                    }
+                }
+
+                // If no start passage found, use the first passage
+                if (!passageToOpen && this.state.passages.size > 0) {
+                    passageToOpen = this.state.passages.values().next().value;
+                }
+            }
+
             if (passageToOpen) {
                 Editor.open(passageToOpen);
             }
@@ -2183,6 +2203,467 @@ const App = {
         }
     },
 
+    initializeVariables() {
+        // Variables dialog event handlers
+        const closeBtn = document.getElementById('close-variables');
+        const addBtn = document.getElementById('add-variable-btn');
+        const filterInput = document.getElementById('variable-filter');
+        const overlay = document.getElementById('variables-overlay');
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => this.closeVariablesDialog());
+        }
+
+        if (addBtn) {
+            addBtn.addEventListener('click', () => this.addVariable());
+        }
+
+        // Add filter functionality
+        if (filterInput) {
+            filterInput.addEventListener('input', (e) => {
+                this.filterVariables(e.target.value);
+            });
+        }
+
+        // Close on overlay click
+        if (overlay) {
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    this.closeVariablesDialog();
+                }
+            });
+        }
+
+        // Close on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !overlay.classList.contains('hidden')) {
+                this.closeVariablesDialog();
+            }
+        });
+
+        // Initialize with some common variables if empty
+        if (this.state.storyVariables.size === 0) {
+            this.state.storyVariables.set('$HAS_HAZMAT_SUIT', 0);
+            this.state.storyVariables.set('$PLAYER_HEALTH', 100);
+            this.state.storyVariables.set('$INVENTORY_COUNT', 0);
+        }
+    },
+
+    openVariablesDialog() {
+        const overlay = document.getElementById('variables-overlay');
+        overlay.classList.remove('hidden');
+
+        // Clear filter when opening dialog
+        const filterInput = document.getElementById('variable-filter');
+        if (filterInput) {
+            filterInput.value = '';
+        }
+
+        // Scan passages for variables and add any missing ones
+        this.scanAndPopulateVariables();
+
+        this.renderVariablesList();
+    },
+
+    scanAndPopulateVariables() {
+        // Scan all passages for variable references
+        const foundVariables = new Map(); // Use Map to track initial values
+
+        // First, check for a StoryVariables passage with initial values
+        this.state.passages.forEach(passage => {
+            if (passage.title === 'StoryVariables' && passage.tags && passage.tags.includes('$metadata')) {
+                // Parse set statements in StoryVariables passage
+                const content = passage.content || '';
+                const setRegex = /<<set\s+\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)>>/g;
+                let match;
+                while ((match = setRegex.exec(content)) !== null) {
+                    const varName = '$' + match[1];
+                    let value = match[2].trim();
+
+                    // Parse the value
+                    if (value.startsWith('"') && value.endsWith('"')) {
+                        // String value
+                        value = value.slice(1, -1);
+                    } else if (value === 'true' || value === 'false') {
+                        // Boolean value
+                        value = value === 'true';
+                    } else if (!isNaN(value)) {
+                        // Numeric value
+                        value = Number(value);
+                    }
+
+                    foundVariables.set(varName, value);
+                }
+            }
+        });
+
+        // Regular expressions to find variables in different contexts
+        const patterns = [
+            /\$([A-Za-z_][A-Za-z0-9_]*)/g,  // Basic variable references like $HAS_KEY
+            /<<if\s+\$([A-Za-z_][A-Za-z0-9_]*)/g,  // Variables in if statements
+            /<<elseif\s+\$([A-Za-z_][A-Za-z0-9_]*)/g,  // Variables in elseif
+            /<<else\s*if\s+\$([A-Za-z_][A-Za-z0-9_]*)/g,  // Variables in else if
+            /<<set\s+\$([A-Za-z_][A-Za-z0-9_]*)/g,  // Variables in set statements
+        ];
+
+        // Scan all passages for variable references
+        this.state.passages.forEach(passage => {
+            const content = passage.content || '';
+
+            patterns.forEach(pattern => {
+                let match;
+                while ((match = pattern.exec(content)) !== null) {
+                    const varName = '$' + match[1];
+                    // Only add if not already found (preserves StoryVariables initial values)
+                    if (!foundVariables.has(varName)) {
+                        foundVariables.set(varName, 0); // Default value
+                    }
+                }
+            });
+        });
+
+        // Add any found variables that aren't already in our state
+        foundVariables.forEach((value, varName) => {
+            if (!this.state.storyVariables.has(varName)) {
+                // Use the initial value from StoryVariables or default
+                this.state.storyVariables.set(varName, value);
+            }
+        });
+    },
+
+    closeVariablesDialog() {
+        const overlay = document.getElementById('variables-overlay');
+        overlay.classList.add('hidden');
+        this.saveToStorage();
+    },
+
+    filterVariables(filterText) {
+        this.renderVariablesList(filterText);
+    },
+
+    renderVariablesList(filterText = '') {
+        const container = document.getElementById('variables-list');
+        container.innerHTML = '';
+
+        // Convert filter to lowercase for case-insensitive matching
+        const filter = filterText.toUpperCase(); // Use uppercase since most vars are uppercase
+        let displayedCount = 0;
+
+        // Collect and sort variables based on filter relevance
+        const variablesToDisplay = [];
+
+        this.state.storyVariables.forEach((value, name) => {
+            if (!filter) {
+                variablesToDisplay.push({ name, value, score: 0 });
+            } else {
+                const upperName = name.toUpperCase();
+                // Check if name starts with $ and filter (highest priority)
+                if (upperName.startsWith('$' + filter)) {
+                    variablesToDisplay.push({ name, value, score: 3 });
+                }
+                // Check if name (without $) starts with filter (high priority)
+                else if (upperName.substring(1).startsWith(filter)) {
+                    variablesToDisplay.push({ name, value, score: 2 });
+                }
+                // Check for word boundary match (medium priority)
+                else if (upperName.match(new RegExp('\\b' + filter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))) {
+                    variablesToDisplay.push({ name, value, score: 1 });
+                }
+                // Skip if no good match
+            }
+        });
+
+        // Sort by score (highest first), then alphabetically
+        variablesToDisplay.sort((a, b) => {
+            if (filter) {
+                if (b.score !== a.score) return b.score - a.score;
+            }
+            return a.name.localeCompare(b.name);
+        });
+
+        // Display the filtered and sorted variables
+        variablesToDisplay.forEach(({ name, value }) => {
+            displayedCount++;
+            const varItem = document.createElement('div');
+            varItem.className = 'variable-item';
+
+            const varName = document.createElement('span');
+            varName.className = 'variable-name';
+
+            // Highlight matching text if filtering
+            if (filter) {
+                const upperName = name.toUpperCase();
+                let matchIndex = -1;
+
+                // Find where the match starts
+                if (upperName.startsWith('$' + filter)) {
+                    matchIndex = 1; // After the $
+                } else if (upperName.substring(1).startsWith(filter)) {
+                    matchIndex = 1;
+                } else {
+                    // Find word boundary match
+                    const wordMatch = upperName.match(new RegExp('\\b' + filter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+                    if (wordMatch) {
+                        matchIndex = wordMatch.index;
+                    }
+                }
+
+                if (matchIndex >= 0) {
+                    const beforeMatch = name.substring(0, matchIndex);
+                    const matchText = name.substring(matchIndex, matchIndex + filter.length);
+                    const afterMatch = name.substring(matchIndex + filter.length);
+
+                    varName.innerHTML = '';
+                    if (beforeMatch) varName.appendChild(document.createTextNode(beforeMatch));
+
+                    const highlight = document.createElement('mark');
+                    highlight.style.backgroundColor = '#ffeb3b';
+                    highlight.style.color = 'inherit';
+                    highlight.style.padding = '0 2px';
+                    highlight.textContent = matchText;
+                    varName.appendChild(highlight);
+
+                    if (afterMatch) varName.appendChild(document.createTextNode(afterMatch));
+                } else {
+                    varName.textContent = name;
+                }
+            } else {
+                varName.textContent = name;
+            }
+
+            const varValue = document.createElement('input');
+            varValue.className = 'variable-value';
+            varValue.type = 'text';
+            varValue.value = value;
+            varValue.addEventListener('change', (e) => {
+                // Try to parse as number, otherwise keep as string
+                let newValue = e.target.value;
+                if (!isNaN(newValue) && newValue !== '') {
+                    newValue = Number(newValue);
+                }
+                this.state.storyVariables.set(name, newValue);
+                this.saveToStorage();
+            });
+
+            const varType = document.createElement('span');
+            varType.className = 'variable-type';
+            varType.textContent = typeof value;
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'variable-delete';
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.addEventListener('click', () => {
+                this.state.storyVariables.delete(name);
+                this.renderVariablesList();
+                this.saveToStorage();
+            });
+
+            varItem.appendChild(varName);
+            varItem.appendChild(varValue);
+            varItem.appendChild(varType);
+            varItem.appendChild(deleteBtn);
+            container.appendChild(varItem);
+        });
+
+        // Update footer to show count
+        const footer = document.querySelector('.variables-footer .variables-hint');
+        if (footer) {
+            const totalCount = this.state.storyVariables.size;
+            if (filter) {
+                footer.textContent = `Showing ${displayedCount} of ${totalCount} variables`;
+            } else {
+                footer.textContent = `${totalCount} variable${totalCount !== 1 ? 's' : ''} defined`;
+            }
+        }
+    },
+
+    addVariable() {
+        const name = prompt('Enter variable name (e.g., $VARIABLE_NAME):');
+        if (name && name.startsWith('$')) {
+            const value = prompt('Enter initial value:');
+            let finalValue = value;
+
+            // Try to parse as number
+            if (!isNaN(value) && value !== '') {
+                finalValue = Number(value);
+            } else if (value === 'true') {
+                finalValue = true;
+            } else if (value === 'false') {
+                finalValue = false;
+            }
+
+            this.state.storyVariables.set(name, finalValue);
+            this.renderVariablesList();
+            this.saveToStorage();
+        } else if (name) {
+            alert('Variable names must start with $');
+        }
+    },
+
+    processConditionals(content) {
+        // Process <<if>> statements with full support for multiple elseif blocks
+        // We need a more complex approach to handle multiple elseif statements
+
+        // First, find all if blocks
+        // Use negative lookahead to avoid matching > that's part of >> closing tag
+        const blockRegex = /<<if\s+((?:(?!>>).)+)>>([\s\S]*?)<<endif>>/g;
+
+        return content.replace(blockRegex, (match, ifCondition, blockContent) => {
+            // Split the block content into sections by elseif/else
+            // We need to carefully parse this to handle nested content
+            const sections = [];
+            let currentSection = { type: 'if', condition: ifCondition, content: '' };
+            let depth = 0;
+            let buffer = '';
+
+            // Parse through the block content character by character to handle nesting
+            for (let i = 0; i < blockContent.length; i++) {
+                // Check for macro start
+                if (blockContent.substr(i, 2) === '<<') {
+                    // Look for the end of this macro
+                    let macroEnd = blockContent.indexOf('>>', i);
+                    if (macroEnd !== -1) {
+                        let macro = blockContent.substring(i, macroEnd + 2);
+
+                        // Check if this is a nested if
+                        if (macro.match(/^<<if\s+/)) {
+                            depth++;
+                            buffer += macro;
+                            i = macroEnd + 1;
+                        }
+                        // Check if this is endif (for nested blocks)
+                        else if (macro === '<<endif>>' && depth > 0) {
+                            depth--;
+                            buffer += macro;
+                            i = macroEnd + 1;
+                        }
+                        // At depth 0, these are our section markers
+                        else if (depth === 0) {
+                            // Check for elseif at current depth
+                            let elseifMatch = macro.match(/^<<else\s*if\s+((?:(?!>>).)+)>>/) ||
+                                              macro.match(/^<<elseif\s+((?:(?!>>).)+)>>/);
+                            if (elseifMatch) {
+                                // Save current section
+                                currentSection.content = buffer;
+                                sections.push(currentSection);
+                                // Start new elseif section
+                                currentSection = { type: 'elseif', condition: elseifMatch[1], content: '' };
+                                buffer = '';
+                                i = macroEnd + 1;
+                            }
+                            // Check for else
+                            else if (macro === '<<else>>') {
+                                // Save current section
+                                currentSection.content = buffer;
+                                sections.push(currentSection);
+                                // Start else section
+                                currentSection = { type: 'else', condition: null, content: '' };
+                                buffer = '';
+                                i = macroEnd + 1;
+                            }
+                            // Other macros just add to buffer
+                            else {
+                                buffer += macro;
+                                i = macroEnd + 1;
+                            }
+                        }
+                        // Inside nested block
+                        else {
+                            buffer += macro;
+                            i = macroEnd + 1;
+                        }
+                    } else {
+                        buffer += blockContent[i];
+                    }
+                } else {
+                    buffer += blockContent[i];
+                }
+            }
+
+            // Save the last section
+            currentSection.content = buffer;
+            sections.push(currentSection);
+
+            // Now evaluate conditions and return appropriate content
+            for (const section of sections) {
+                if (section.type === 'if' || section.type === 'elseif') {
+                    if (this.evaluateCondition(section.condition)) {
+                        return section.content;
+                    }
+                } else if (section.type === 'else') {
+                    return section.content;
+                }
+            }
+
+            // No condition matched
+            return '';
+        });
+    },
+
+    evaluateCondition(condition) {
+        // Evaluate a condition string using story variables
+        // Support formats: $VAR, $VAR == value, $VAR is value, $VAR >= value, etc.
+
+        condition = condition.trim();
+
+        // Check for comparison operators
+        const operators = ['==', '!=', '>=', '<=', '>', '<', 'is', 'isnt'];
+        let found = false;
+
+        for (const op of operators) {
+            if (condition.includes(` ${op} `)) {
+                const parts = condition.split(` ${op} `);
+                if (parts.length === 2) {
+                    const varName = parts[0].trim();
+                    let compareValue = parts[1].trim();
+
+                    // Get variable value
+                    const varValue = this.state.storyVariables.get(varName);
+                    if (varValue === undefined) return false;
+
+                    // Parse comparison value
+                    if (!isNaN(compareValue)) {
+                        compareValue = Number(compareValue);
+                    } else if (compareValue === 'true') {
+                        compareValue = true;
+                    } else if (compareValue === 'false') {
+                        compareValue = false;
+                    } else if (compareValue.startsWith('"') && compareValue.endsWith('"')) {
+                        compareValue = compareValue.slice(1, -1);
+                    }
+
+                    // Perform comparison
+                    switch (op) {
+                        case '==':
+                        case 'is':
+                            return varValue == compareValue;
+                        case '!=':
+                        case 'isnt':
+                            return varValue != compareValue;
+                        case '>=':
+                            return varValue >= compareValue;
+                        case '<=':
+                            return varValue <= compareValue;
+                        case '>':
+                            return varValue > compareValue;
+                        case '<':
+                            return varValue < compareValue;
+                    }
+                }
+                found = true;
+                break;
+            }
+        }
+
+        // If no operator, check if variable exists and is truthy
+        if (!found) {
+            const varValue = this.state.storyVariables.get(condition);
+            return varValue !== undefined && varValue !== 0 && varValue !== false && varValue !== '';
+        }
+
+        return false;
+    },
+
     renderPreviewPassage(passage, container) {
         // Update the title in the header
         const titleElement = document.getElementById('preview-title');
@@ -2199,12 +2680,8 @@ const App = {
         // Handle <<set>> macros - just remove them for preview
         content = content.replace(/<<set\s+[^>]+>>/g, '');
 
-        // Handle <<if>>, <<elseif>>, <<else>>, <<endif>> - simplify for preview
-        // For now, just show all conditional content with indicators
-        content = content.replace(/<<if\s+[^>]+>>/g, '<em>[if condition]</em> ');
-        content = content.replace(/<<elseif\s+[^>]+>>/g, '<br><em>[else if condition]</em> ');
-        content = content.replace(/<<else>>/g, '<br><em>[else]</em> ');
-        content = content.replace(/<<endif>>/g, '<em>[end if]</em>');
+        // Handle <<if>>, <<elseif>>, <<else>>, <<endif>> - EVALUATE conditionals
+        content = this.processConditionals(content);
 
         // Handle other common macros - display them as indicators
         content = content.replace(/<<print\s+([^>]+)>>/g, '<em>[value: $1]</em>');
@@ -2989,7 +3466,8 @@ Use Ctrl/Cmd+click to select multiple files`;
             activeLaneId: this.state.activeLaneId,
             nextPassageId: this.state.nextPassageId,
             nextLaneId: this.state.nextLaneId,
-            darkMode: this.state.darkMode
+            darkMode: this.state.darkMode,
+            storyVariables: Array.from(this.state.storyVariables.entries())
         };
         localStorage.setItem('branched-data', JSON.stringify(data));
     },
@@ -3016,6 +3494,11 @@ Use Ctrl/Cmd+click to select multiple files`;
             this.state.nextLaneId = data.nextLaneId || 1;
             this.state.darkMode = data.darkMode || false;
             this.state.stickyNotesVisible = data.stickyNotesVisible !== undefined ? data.stickyNotesVisible : true;
+
+            // Restore story variables
+            if (data.storyVariables && Array.isArray(data.storyVariables)) {
+                this.state.storyVariables = new Map(data.storyVariables);
+            }
 
             // Apply theme
             if (this.state.darkMode) {
