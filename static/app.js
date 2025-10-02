@@ -11,6 +11,7 @@ const App = {
         nextLaneId: 1,
         darkMode: false,
         stickyNotesVisible: true,
+        panelEnabled: false,
     },
 
     colors: {
@@ -242,6 +243,7 @@ const App = {
     },
 
     bindEvents() {
+        document.getElementById('toggle-panel-btn').addEventListener('click', () => this.togglePanel());
         document.getElementById('add-lane-btn').addEventListener('click', () => this.addLane());
         document.getElementById('add-passage-btn').addEventListener('click', () => this.addPassage());
         document.getElementById('project-selector').addEventListener('change', (e) => this.handleProjectSelection(e));
@@ -250,6 +252,10 @@ const App = {
         document.getElementById('clear-storage-btn').addEventListener('click', () => this.clearStorage());
         document.getElementById('sticky-notes-toggle').addEventListener('click', () => this.toggleStickyNotes());
         document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
+
+        // Initialize Co-Author and Preview tabs
+        this.initializeCoAuthor();
+        this.initializePreview();
 
         // Load available projects on init
         this.loadProjectList();
@@ -281,6 +287,14 @@ const App = {
         const clickedPassage = this.getPassageAtPosition(x, y);
 
         if (clickedPassage) {
+            // Auto-enable panel when clicking a passage
+            if (!this.state.panelEnabled) {
+                this.state.panelEnabled = true;
+                const btn = document.getElementById('toggle-panel-btn');
+                btn.textContent = '✏️✓ Edit';
+                btn.style.opacity = '1';
+                this.saveToStorage();
+            }
             this.selectPassage(clickedPassage);
             Editor.open(clickedPassage);
         } else {
@@ -290,6 +304,14 @@ const App = {
                 // Open the editor for the source passage
                 const sourcePassage = this.state.passages.get(clickedSticky.fromId);
                 if (sourcePassage) {
+                    // Auto-enable panel when clicking a sticky note
+                    if (!this.state.panelEnabled) {
+                        this.state.panelEnabled = true;
+                        const btn = document.getElementById('toggle-panel-btn');
+                        btn.textContent = '✏️✓ Edit';
+                        btn.style.opacity = '1';
+                        this.saveToStorage();
+                    }
                     this.selectPassage(sourcePassage);
                     Editor.open(sourcePassage);
                 }
@@ -629,6 +651,15 @@ const App = {
         this.render();
         this.saveToStorage();
 
+        // Auto-enable panel when creating a new passage
+        if (!this.state.panelEnabled) {
+            this.state.panelEnabled = true;
+            const btn = document.getElementById('toggle-panel-btn');
+            btn.textContent = '✏️✓ Edit';
+            btn.style.opacity = '1';
+            this.saveToStorage();
+        }
+
         this.selectPassage(passage);
         Editor.open(passage);
     },
@@ -669,6 +700,15 @@ const App = {
         this.resizeCanvas();
         this.render();
         this.saveToStorage();
+
+        // Auto-enable panel when creating a new passage at position
+        if (!this.state.panelEnabled) {
+            this.state.panelEnabled = true;
+            const btn = document.getElementById('toggle-panel-btn');
+            btn.textContent = '✏️✓ Edit';
+            btn.style.opacity = '1';
+            this.saveToStorage();
+        }
 
         this.selectPassage(passage);
         Editor.open(passage);
@@ -1642,6 +1682,15 @@ const App = {
                 this.selectLane(parent.laneId);
             }
 
+            // Auto-enable panel when navigating to parent
+            if (!this.state.panelEnabled) {
+                this.state.panelEnabled = true;
+                const btn = document.getElementById('toggle-panel-btn');
+                btn.textContent = '✏️✓ Edit';
+                btn.style.opacity = '1';
+                this.saveToStorage();
+            }
+
             // Select and open parent passage
             this.selectPassage(parent);
             this.updateAllLanePositions(); // Ensure positions are current
@@ -2050,6 +2099,189 @@ const App = {
 
         this.render();
         this.saveToStorage();
+    },
+
+    togglePanel() {
+        this.state.panelEnabled = !this.state.panelEnabled;
+
+        const btn = document.getElementById('toggle-panel-btn');
+        const panel = document.getElementById('editor-panel');
+
+        btn.textContent = this.state.panelEnabled ? '✏️✓ Edit' : '✏️ Edit';
+        btn.style.opacity = this.state.panelEnabled ? '1' : '0.5';
+
+        if (this.state.panelEnabled) {
+            // If enabling panel, open editor for selected passage or Editor.currentPassage
+            const passageToOpen = this.state.selectedPassage || Editor.currentPassage;
+            if (passageToOpen) {
+                Editor.open(passageToOpen);
+            }
+        } else {
+            // If disabling panel, close it
+            panel.classList.add('hidden');
+            document.body.classList.remove('panel-open');
+        }
+
+        this.saveToStorage();
+    },
+
+    initializeCoAuthor() {
+        const generateBtn = document.getElementById('coauthor-generate');
+        if (generateBtn) {
+            generateBtn.addEventListener('click', () => {
+                const prompt = document.getElementById('coauthor-prompt').value;
+                const results = document.getElementById('coauthor-results');
+
+                // Placeholder for AI integration
+                results.innerHTML = `<em>AI co-authoring features coming soon!</em>\n\nYour prompt: "${prompt}"\n\nThis tab will integrate with AI services to help generate story content, suggest improvements, and assist with creative writing.`;
+            });
+        }
+    },
+
+    initializePreview() {
+        const fromStartBtn = document.getElementById('preview-from-start');
+        const fromHereBtn = document.getElementById('preview-from-here');
+
+        if (fromStartBtn) {
+            fromStartBtn.addEventListener('click', () => {
+                this.previewStory(true);
+            });
+        }
+
+        if (fromHereBtn) {
+            fromHereBtn.addEventListener('click', () => {
+                this.previewStory(false);
+            });
+        }
+    },
+
+    previewStory(fromStart) {
+        const previewContent = document.getElementById('preview-content');
+
+        if (fromStart) {
+            // Find start passage
+            let startPassage = null;
+            for (const [id, passage] of this.state.passages) {
+                if (passage.tags && passage.tags.includes('$start')) {
+                    startPassage = passage;
+                    break;
+                }
+            }
+
+            if (startPassage) {
+                this.renderPreviewPassage(startPassage, previewContent);
+            } else {
+                previewContent.innerHTML = '<p>No start passage found. Add the $start tag to a passage.</p>';
+            }
+        } else {
+            // Preview from current passage
+            if (Editor.currentPassage) {
+                this.renderPreviewPassage(Editor.currentPassage, previewContent);
+            } else {
+                previewContent.innerHTML = '<p>No passage selected. Select a passage to preview.</p>';
+            }
+        }
+    },
+
+    renderPreviewPassage(passage, container) {
+        // Update the title in the header
+        const titleElement = document.getElementById('preview-title');
+        if (titleElement) {
+            titleElement.textContent = `Story Preview: ${passage.title}`;
+        }
+
+        let html = `<div class="preview-passage">`;
+
+        // Process content with proper Twee/Twine parsing
+        let content = passage.content || '';
+
+        // Step 1: Remove or process macros
+        // Handle <<set>> macros - just remove them for preview
+        content = content.replace(/<<set\s+[^>]+>>/g, '');
+
+        // Handle <<if>>, <<elseif>>, <<else>>, <<endif>> - simplify for preview
+        // For now, just show all conditional content with indicators
+        content = content.replace(/<<if\s+[^>]+>>/g, '<em>[if condition]</em> ');
+        content = content.replace(/<<elseif\s+[^>]+>>/g, '<br><em>[else if condition]</em> ');
+        content = content.replace(/<<else>>/g, '<br><em>[else]</em> ');
+        content = content.replace(/<<endif>>/g, '<em>[end if]</em>');
+
+        // Handle other common macros - display them as indicators
+        content = content.replace(/<<print\s+([^>]+)>>/g, '<em>[value: $1]</em>');
+        content = content.replace(/<<display\s+"([^"]+)">>/g, '<em>[includes: $1]</em>');
+        content = content.replace(/<<click\s+"([^"]+)">>/g, '<span class="preview-action" style="color: #0066cc; cursor: pointer;">[$1]</span>');
+        content = content.replace(/<<\/?click>>/g, '');
+
+        // Remove any remaining uncaught macros (safety net)
+        content = content.replace(/<<[^>]+>>/g, (match) => {
+            // Keep track of what we're removing for debugging
+            console.log('Removing unhandled macro:', match);
+            return '';
+        });
+
+        // Step 2: Convert [[links]] to clickable elements
+        // Handle both [[text|target]] and [[target]] formats
+        content = content.replace(/\[\[([^\]]+)\]\]/g, (match, link) => {
+            let displayText = link;
+            let targetTitle = link;
+
+            // Check for pipe separator for display|target format
+            if (link.includes('|')) {
+                const parts = link.split('|');
+                displayText = parts[0].trim();
+                targetTitle = parts[1].trim();
+            }
+
+            // Check for arrow separator for target<-display format (some Twee variants)
+            else if (link.includes('<-')) {
+                const parts = link.split('<-');
+                targetTitle = parts[0].trim();
+                displayText = parts[1].trim();
+            }
+
+            // Check for arrow separator for display->target format
+            else if (link.includes('->')) {
+                const parts = link.split('->');
+                displayText = parts[0].trim();
+                targetTitle = parts[1].trim();
+            }
+
+            return `<span class="preview-link" data-target="${targetTitle}" style="color: #0066cc; cursor: pointer; text-decoration: underline;">${displayText}</span>`;
+        });
+
+        // Step 3: Convert line breaks to HTML
+        content = content.replace(/\n/g, '<br>');
+
+        // Step 4: Basic formatting
+        // Convert **bold** and //italic//
+        content = content.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        content = content.replace(/\/\/([^/]+)\/\//g, '<em>$1</em>');
+
+        html += `<div class="preview-text">${content}</div>`;
+        html += `</div>`;
+
+        container.innerHTML = html;
+
+        // Add click handlers to links
+        container.querySelectorAll('.preview-link').forEach(link => {
+            link.addEventListener('click', () => {
+                const targetTitle = link.dataset.target;
+                const targetPassage = Array.from(this.state.passages.values()).find(p => p.title === targetTitle);
+                if (targetPassage) {
+                    this.renderPreviewPassage(targetPassage, container);
+                } else {
+                    // If passage doesn't exist, show an error
+                    alert(`Passage "${targetTitle}" not found`);
+                }
+            });
+        });
+
+        // Add handlers for action spans (from <<click>> macros)
+        container.querySelectorAll('.preview-action').forEach(action => {
+            action.addEventListener('click', () => {
+                alert('Interactive actions are not supported in preview mode');
+            });
+        });
     },
 
     async loadProjectList() {

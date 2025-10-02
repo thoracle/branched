@@ -1,6 +1,7 @@
 const Editor = {
     currentPassage: null,
     updating: false,
+    panelVisible: false,
 
     init(app) {
         this.app = app;
@@ -13,6 +14,12 @@ const Editor = {
         const parentBtn = document.getElementById('goto-parent');
 
         closeBtn.addEventListener('click', () => this.close());
+
+        // Tab switching
+        const tabButtons = document.querySelectorAll('.tab-button');
+        tabButtons.forEach(btn => {
+            btn.addEventListener('click', () => this.switchTab(btn.dataset.tab));
+        });
         deleteBtn.addEventListener('click', () => {
             if (this.currentPassage && confirm('Are you sure you want to delete this passage?')) {
                 this.app.deletePassage(this.currentPassage.id);
@@ -101,8 +108,18 @@ const Editor = {
         // Create link buttons for all links in the passage (including parent)
         this.updateLinkButtons(passage);
 
-        panel.classList.remove('hidden');
-        titleInput.focus();
+        // Open panel if toggle is on
+        if (this.app.state.panelEnabled) {
+            panel.classList.remove('hidden');
+            document.body.classList.add('panel-open');
+            titleInput.focus();
+
+            // If preview tab is active, update the preview with new passage
+            const previewTab = document.querySelector('.tab-button[data-tab="preview"]');
+            if (previewTab && previewTab.classList.contains('active')) {
+                this.app.previewStory(false); // false = from current passage
+            }
+        }
 
         // Re-enable updates after initialization
         this.updating = false;
@@ -202,9 +219,31 @@ const Editor = {
     close() {
         const panel = document.getElementById('editor-panel');
         panel.classList.add('hidden');
+        document.body.classList.remove('panel-open');
         this.currentPassage = null;
         this.app.selectPassage(null);
         this.app.render();
+    },
+
+    switchTab(tabName) {
+        // Update tab buttons
+        document.querySelectorAll('.tab-button').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === tabName);
+        });
+
+        // Update tab content
+        document.querySelectorAll('.tab-content').forEach(content => {
+            const isActive = content.id === `tab-${tabName}`;
+            content.classList.toggle('active', isActive);
+            content.classList.toggle('hidden', !isActive);
+        });
+
+        // Initialize preview if switching to preview tab
+        if (tabName === 'preview') {
+            // Always refresh the preview when switching to the preview tab
+            // This ensures it shows the current passage after project changes
+            this.app.previewStory(false); // false = from current passage
+        }
     },
 
     navigateToPassage(targetTitle) {

@@ -91,7 +91,7 @@ body.dark-mode #theme-toggle:hover {
     overflow-y: auto;
     position: relative;
     background: #f5f5f5;
-    transition: background 0.3s ease;
+    transition: background 0.3s ease, margin-right 0.3s ease;
 }
 
 body.dark-mode #canvas-container {
@@ -105,15 +105,18 @@ body.dark-mode #canvas-container {
 
 #editor-panel {
     position: fixed;
-    right: 20px;
-    top: 80px;
-    width: 350px;
+    right: 0;
+    top: 60px;
+    bottom: 0;
+    width: 400px;
     background: #ffffff;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    z-index: 1000;
-    transition: all 0.3s ease;
+    border-left: 1px solid #ddd;
+    box-shadow: -2px 0 8px rgba(0,0,0,0.1);
+    z-index: 100;
+    transition: transform 0.3s ease;
+    transform: translateX(0);
+    display: flex;
+    flex-direction: column;
 }
 
 body.dark-mode #editor-panel {
@@ -123,15 +126,62 @@ body.dark-mode #editor-panel {
 }
 
 #editor-panel.hidden {
-    display: none;
+    transform: translateX(100%);
+}
+
+/* When panel is open, slide canvas over */
+.panel-open #canvas-container {
+    margin-right: 400px;
 }
 
 .editor-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 15px;
+    padding: 10px 15px;
     border-bottom: 1px solid #eee;
+    background: #fafafa;
+}
+
+.editor-tabs {
+    display: flex;
+    gap: 5px;
+}
+
+.tab-button {
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-size: 14px;
+    color: #666;
+    transition: all 0.2s;
+}
+
+.tab-button.active {
+    color: #0066cc;
+    border-bottom-color: #0066cc;
+    font-weight: bold;
+}
+
+.tab-button:hover:not(.active) {
+    background: #f0f0f0;
+    color: #333;
+}
+
+body.dark-mode .tab-button {
+    color: #999;
+}
+
+body.dark-mode .tab-button.active {
+    color: #4499ff;
+    border-bottom-color: #4499ff;
+}
+
+body.dark-mode .tab-button:hover:not(.active) {
+    background: #333;
+    color: #e0e0e0;
 }
 
 .editor-header h3 {
@@ -175,6 +225,23 @@ body.dark-mode #close-editor:hover {
     display: flex;
     flex-direction: column;
     gap: 15px;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.tab-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+}
+
+.tab-content.hidden {
+    display: none;
+}
+
+.tab-content.active {
+    display: flex;
 }
 
 #passage-title {
@@ -744,4 +811,114 @@ body.dark-mode .search-footer {
         opacity: 0;
         transform: translateX(100%);
     }
+}
+
+/* Co-Author Tab Styles */
+.coauthor-section h4,
+.preview-section h4 {
+    margin: 0 0 15px 0;
+    color: #333;
+    font-size: 16px;
+}
+
+body.dark-mode .coauthor-section h4,
+body.dark-mode .preview-section h4 {
+    color: #e0e0e0;
+}
+
+#coauthor-prompt {
+    width: 100%;
+    min-height: 100px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    resize: vertical;
+    margin-bottom: 10px;
+}
+
+body.dark-mode #coauthor-prompt {
+    background: #333;
+    border-color: #555;
+    color: #e0e0e0;
+}
+
+#coauthor-generate {
+    background: #007bff;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-bottom: 15px;
+}
+
+#coauthor-generate:hover {
+    background: #0056b3;
+}
+
+#coauthor-results {
+    padding: 15px;
+    background: #f9f9f9;
+    border-radius: 4px;
+    min-height: 200px;
+    white-space: pre-wrap;
+}
+
+body.dark-mode #coauthor-results {
+    background: #333;
+    color: #e0e0e0;
+}
+
+/* Story Preview Tab Styles */
+.preview-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.preview-controls button {
+    flex: 1;
+}
+
+#preview-content {
+    padding: 15px;
+    background: #f9f9f9;
+    border-radius: 4px;
+    min-height: 400px;
+    overflow-y: auto;
+    font-family: Georgia, serif;
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+body.dark-mode #preview-content {
+    background: #333;
+    color: #e0e0e0;
+}
+
+.preview-passage {
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #ddd;
+}
+
+body.dark-mode .preview-passage {
+    border-bottom-color: #555;
+}
+
+/* Preview title now shown in header, not in passage content */
+
+.preview-text {
+    line-height: 1.8;
+}
+
+.preview-text em {
+    color: #888;
+    font-style: italic;
+    font-size: 0.9em;
+}
+
+body.dark-mode .preview-text em {
+    color: #666;
 }
